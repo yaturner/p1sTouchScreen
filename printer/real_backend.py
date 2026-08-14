@@ -7,6 +7,7 @@ pending a live printer to verify against.
 """
 from __future__ import annotations
 
+import json
 import logging
 
 import bambulabs_api as bl
@@ -271,26 +272,52 @@ class RealBackend(PrinterBackend):
         self._call(self._printer.turn_light_off)
 
     # -- AMS / filament ---------------------------------------------------
+    # bambulabs_api doesn't wrap AMS load/unload at the high level (only
+    # load_filament_spool()/unload_filament_spool() for the single external
+    # "vt_tray" holder). Confirmed against OpenBambuAPI's documented local
+    # MQTT schema (github.com/Doridian/OpenBambuAPI/blob/main/mqtt.md) and
+    # verified live on a real P1S + AMS:
+    #   print.ams_change_filament: {"target": <tray id>, "curr_temp": ...,
+    #     "tar_temp": ...} -- switches the active tray and handles the
+    #     nozzle temperature transition for the swap.
+    #   print.unload_filament: no params -- unloads whatever is active.
+    _DEFAULT_NOZZLE_TARGET_TEMP = 220
+
     def load_filament(self, slot: int) -> None:
-        # bambulabs_api exposes load_filament_spool()/unload_filament_spool()
-        # for the single external "vt_tray" spool holder, and
-        # set_filament_printer() to *label* a tray's material/color -- but no
-        # high-level "switch AMS to slot N" call. Bambu's local MQTT schema
-        # has an `ams_change_filament` command (see OpenBambuAPI docs) that
-        # isn't wrapped here. Rather than guess an untested raw MQTT payload
-        # against real hardware, surface this clearly so it gets a real
-        # verification pass (Milestone 6) instead of silently doing nothing
-        # or sending something unverified to physical AMS motors.
-        self.error.emit(
-            "AMS per-slot load isn't wired up yet -- needs verification "
-            "against real AMS hardware (see printer/real_backend.py)."
-        )
+        current_temp = self._printer.get_nozzle_temperature()
+        curr_temp = int(current_temp) if current_temp is not None else 0
+        tar_temp = self._DEFAULT_NOZZLE_TARGET_TEMP
+        try:
+            tray = self._printer.ams_hub()[0].get_filament_tray(slot)
+            if tray is not None and getattr(tray, "nozzle_temp_min", None):
+                tar_temp = int(tray.nozzle_temp_min)
+        except Exception:
+            logger.debug("couldn't read tray nozzle_temp_min, using default", exc_info=True)
+
+        self._call(self._publish_raw, {
+            "print": {
+                "sequence_id": "0",
+                "command": "ams_change_filament",
+                "target": slot,
+                "curr_temp": curr_temp,
+                "tar_temp": tar_temp,
+            }
+        })
 
     def unload_filament(self, slot: int) -> None:
-        self.error.emit(
-            "AMS per-slot unload isn't wired up yet -- needs verification "
-            "against real AMS hardware (see printer/real_backend.py)."
-        )
+        self._call(self._publish_raw, {
+            "print": {
+                "sequence_id": "0",
+                "command": "unload_filament",
+            }
+        })
+
+    def _publish_raw(self, payload: dict) -> None:
+        client = self._printer.mqtt_client
+        ok = client._client.publish(client.command_topic, json.dumps(payload))
+        ok.wait_for_publish()
+        if not ok.is_published():
+            raise RuntimeError(f"MQTT publish failed for {payload}")
 
     # -- files ----------------------------------------------------------------
     _PRINT_FILE_EXTENSIONS = (".3mf", ".gcode")
