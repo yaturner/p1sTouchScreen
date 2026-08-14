@@ -333,7 +333,13 @@ class RealBackend(PrinterBackend):
 
     def request_file_list(self) -> None:
         try:
-            path, entries = self._printer.ftp_client.list_cache_dir()
+            # list_cache_dir()'s first return value is NOT a path -- it's
+            # ftplib's raw server response line for the LIST command (e.g.
+            # "226 Directory send OK."), confirmed by reading
+            # PrinterFTPClient.list_directory()'s source. The actual
+            # directory listed is hardcoded to "cache" by list_cache_dir()
+            # itself, so that's the real prefix for each file's path.
+            _ftp_status_line, entries = self._printer.ftp_client.list_cache_dir()
         except Exception as exc:
             logger.warning("file list failed: %s", exc)
             self.error.emit(f"Couldn't list files: {exc}")
@@ -343,7 +349,7 @@ class RealBackend(PrinterBackend):
         for entry in entries:
             name, size_bytes = _parse_ftp_list_entry(entry)
             if name.lower().endswith(self._PRINT_FILE_EXTENSIONS):
-                files.append(PrintFile(name=name, path=f"{path.rstrip('/')}/{name}", size_bytes=size_bytes))
+                files.append(PrintFile(name=name, path=f"cache/{name}", size_bytes=size_bytes))
         self.file_list_ready.emit(files)
 
     # -- helpers ----------------------------------------------------------------
