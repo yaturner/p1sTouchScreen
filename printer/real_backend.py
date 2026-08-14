@@ -221,10 +221,19 @@ class RealBackend(PrinterBackend):
 
     # -- temperature / motion --------------------------------------------
     def set_nozzle_target(self, celsius: int) -> None:
-        self._call(self._printer.set_nozzle_temperature, celsius)
+        # Printer.set_nozzle_temperature() doesn't expose the underlying
+        # mqtt_client's `override` param, which defaults to False and
+        # silently REJECTS any target below 60C ("not recommended") --
+        # including 0, i.e. "turn the heater off". Our keypad already lets
+        # the user pick any value in [0, 300], so that guard is redundant
+        # here and would otherwise break turning heat off. Confirmed via
+        # live-printer testing that override=True is required for this to
+        # actually take effect at all (bare Printer-level call returned
+        # False for a 200C target on this printer's firmware).
+        self._call(self._printer.mqtt_client.set_nozzle_temperature, celsius, override=True)
 
     def set_bed_target(self, celsius: int) -> None:
-        self._call(self._printer.set_bed_temperature, celsius)
+        self._call(self._printer.mqtt_client.set_bed_temperature, celsius, override=True)
 
     def home_axes(self) -> None:
         self._call(self._printer.home_printer)
