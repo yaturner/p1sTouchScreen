@@ -128,6 +128,11 @@ class RealBackend(PrinterBackend):
         try:
             raw = p.mqtt_dump() or {}
             s.raw = raw
+            # mqtt_dump() returns the whole received envelope
+            # ({"pushing": ..., "info": ..., "print": {...actual telemetry...}}),
+            # confirmed against a live printer -- all per-field state (ams,
+            # hms, etc.) lives under raw["print"], not at the top level.
+            raw_print = raw.get("print") or {}
 
             s.nozzle_temp = _safe(p.get_nozzle_temperature)
             s.bed_temp = _safe(p.get_bed_temperature)
@@ -156,8 +161,8 @@ class RealBackend(PrinterBackend):
                 "chamber": _pct(_safe(getattr(p.mqtt_client, "get_chamber_fan_speed", None))),
             }
 
-            s.ams_trays = self._read_ams_trays(raw)
-            s.hms_errors = [str(e) for e in raw.get("hms", [])] if isinstance(raw.get("hms"), list) else []
+            s.ams_trays = self._read_ams_trays(raw_print)
+            s.hms_errors = [str(e) for e in raw_print.get("hms", [])] if isinstance(raw_print.get("hms"), list) else []
 
             self.state_changed.emit(s)
         except Exception:
