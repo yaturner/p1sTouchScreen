@@ -1,0 +1,93 @@
+"""Backend interface shared by the mock and real printer backends.
+
+UI code talks only to this interface (via Qt signals) and never imports
+bambulabs_api or the mock generator directly. Swapping backends is a
+one-line change in main.py.
+"""
+from __future__ import annotations
+
+from abc import abstractmethod
+
+from PySide6.QtCore import QObject, Signal
+
+from state import ConnectionState, PrinterState, PrintFile
+
+
+class PrinterBackend(QObject):
+    # PrinterState
+    state_changed = Signal(object)
+    # ConnectionState
+    connection_changed = Signal(object)
+    # QImage
+    camera_frame = Signal(object)
+    # list[PrintFile]
+    file_list_ready = Signal(list)
+    # str -- surfaced to the UI as a toast/dialog, e.g. command failures
+    error = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._state = PrinterState(connection=ConnectionState.DISCONNECTED)
+
+    @property
+    def state(self) -> PrinterState:
+        return self._state
+
+    # -- lifecycle -----------------------------------------------------
+    @abstractmethod
+    def connect_printer(self) -> None: ...
+
+    @abstractmethod
+    def disconnect_printer(self) -> None: ...
+
+    # -- print job control ----------------------------------------------
+    @abstractmethod
+    def start_print(self, filename: str, plate: int = 1) -> None: ...
+
+    @abstractmethod
+    def pause_print(self) -> None: ...
+
+    @abstractmethod
+    def resume_print(self) -> None: ...
+
+    @abstractmethod
+    def stop_print(self) -> None: ...
+
+    @abstractmethod
+    def set_speed_level(self, level: int) -> None: ...
+
+    # -- temperature / motion --------------------------------------------
+    @abstractmethod
+    def set_nozzle_target(self, celsius: int) -> None: ...
+
+    @abstractmethod
+    def set_bed_target(self, celsius: int) -> None: ...
+
+    @abstractmethod
+    def home_axes(self) -> None: ...
+
+    @abstractmethod
+    def jog(self, axis: str, distance_mm: float) -> None: ...
+
+    @abstractmethod
+    def extrude(self, mm: float) -> None: ...
+
+    @abstractmethod
+    def set_fan_speed(self, fan: str, percent: int) -> None: ...
+
+    @abstractmethod
+    def light_on(self) -> None: ...
+
+    @abstractmethod
+    def light_off(self) -> None: ...
+
+    # -- AMS / filament ---------------------------------------------------
+    @abstractmethod
+    def load_filament(self, slot: int) -> None: ...
+
+    @abstractmethod
+    def unload_filament(self, slot: int) -> None: ...
+
+    # -- files -------------------------------------------------------------
+    @abstractmethod
+    def request_file_list(self) -> None: ...

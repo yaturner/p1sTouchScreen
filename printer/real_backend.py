@@ -1,0 +1,328 @@
+"""Backend that talks to a real P1S over the local network via bambulabs_api.
+
+Method names below were confirmed by introspecting the installed
+bambulabs_api package (BambuTools/bambulabs_api on PyPI), not guessed from
+docs alone -- see the comments next to anything that's still an assumption
+pending a live printer to verify against.
+"""
+from __future__ import annotations
+
+import logging
+
+import bambulabs_api as bl
+from PySide6.QtCore import QThread, QTimer, Signal
+
+from printer.base import PrinterBackend
+from printer.image_convert import pil_to_qimage
+from state import AMSTray, ConnectionState, GcodeState, PrinterState, PrintFile
+
+logger = logging.getLogger(__name__)
+
+_GCODE_STATE_MAP = {
+    bl.GcodeState.IDLE: GcodeState.IDLE,
+    bl.GcodeState.PREPARE: GcodeState.RUNNING,
+    bl.GcodeState.RUNNING: GcodeState.RUNNING,
+    bl.GcodeState.PAUSE: GcodeState.PAUSE,
+    bl.GcodeState.FINISH: GcodeState.FINISH,
+    bl.GcodeState.FAILED: GcodeState.FAILED,
+    bl.GcodeState.UNKNOWN: GcodeState.UNKNOWN,
+}
+
+_RECONNECT_INTERVAL_MS = 5000
+_POLL_INTERVAL_MS = 1000
+_CAMERA_INTERVAL_MS = 400
+
+
+class CameraPollThread(QThread):
+    """Repeatedly pulls a JPEG frame over the network; this blocks, hence a thread."""
+
+    frame_ready = Signal(object)  # QImage
+
+    def __init__(self, printer: "bl.Printer", parent=None) -> None:
+        super().__init__(parent)
+        self._printer = printer
+        self._running = False
+
+    def run(self) -> None:
+        self._running = True
+        while self._running:
+            try:
+                pil_image = self._printer.get_camera_image()
+                self.frame_ready.emit(pil_to_qimage(pil_image))
+            except Exception:
+                logger.debug("camera frame fetch failed", exc_info=True)
+            self.msleep(_CAMERA_INTERVAL_MS)
+
+    def stop(self) -> None:
+        self._running = False
+        self.wait(2000)
+
+
+class RealBackend(PrinterBackend):
+    def __init__(self, ip: str, access_code: str, serial: str) -> None:
+        super().__init__()
+        self._printer = bl.Printer(ip, access_code, serial)
+        self._camera_thread: CameraPollThread | None = None
+
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(_POLL_INTERVAL_MS)
+        self._poll_timer.timeout.connect(self._poll)
+
+        self._connecting = False
+
+    # -- lifecycle -----------------------------------------------------
+    def connect_printer(self) -> None:
+        self._state.connection = ConnectionState.CONNECTING
+        self.connection_changed.emit(ConnectionState.CONNECTING)
+        self._try_connect()
+        self._poll_timer.start()
+
+    def disconnect_printer(self) -> None:
+        self._poll_timer.stop()
+        if self._camera_thread is not None:
+            self._camera_thread.stop()
+            self._camera_thread = None
+        try:
+            self._printer.disconnect()
+        except Exception:
+            logger.debug("disconnect() raised", exc_info=True)
+        self._state.connection = ConnectionState.DISCONNECTED
+        self.connection_changed.emit(ConnectionState.DISCONNECTED)
+
+    def _try_connect(self) -> None:
+        try:
+            self._printer.connect()
+        except Exception as exc:
+            logger.warning("printer.connect() failed: %s", exc)
+            self.error.emit(f"Connection failed: {exc}")
+            return
+        if self._camera_thread is None:
+            self._camera_thread = CameraPollThread(self._printer, self)
+            self._camera_thread.frame_ready.connect(self.camera_frame.emit)
+            self._camera_thread.start()
+
+    # -- poll loop -----------------------------------------------------
+    def _poll(self) -> None:
+        try:
+            connected = bool(self._printer.mqtt_client_connected())
+        except Exception:
+            connected = False
+
+        prev = self._state.connection
+        if connected:
+            if prev != ConnectionState.CONNECTED:
+                self._state.connection = ConnectionState.CONNECTED
+                self.connection_changed.emit(ConnectionState.CONNECTED)
+            self._pull_state()
+        else:
+            new_state = ConnectionState.RECONNECTING if prev == ConnectionState.CONNECTED \
+                else ConnectionState.CONNECTING
+            if prev != new_state:
+                self._state.connection = new_state
+                self.connection_changed.emit(new_state)
+            self._try_connect()
+
+    def _pull_state(self) -> None:
+        p = self._printer
+        s = self._state
+        try:
+            raw = p.mqtt_dump() or {}
+            s.raw = raw
+
+            s.nozzle_temp = _safe(p.get_nozzle_temperature)
+            s.bed_temp = _safe(p.get_bed_temperature)
+            s.chamber_temp = _safe(p.get_chamber_temperature)
+            s.nozzle_target = _safe(getattr(p.mqtt_client, "get_nozzle_temperature_target", None))
+            s.bed_target = _safe(getattr(p.mqtt_client, "get_bed_temperature_target", None))
+
+            gstate = _safe(p.get_state)
+            s.gcode_state = _GCODE_STATE_MAP.get(gstate, GcodeState.UNKNOWN)
+
+            percent = _safe(p.get_percentage)
+            s.print_percent = percent if isinstance(percent, int) else None
+            s.current_layer = _safe(p.current_layer_num)
+            s.total_layer = _safe(p.total_layer_num)
+            remaining = _safe(p.get_time)
+            s.remaining_minutes = remaining if isinstance(remaining, int) else None
+            s.current_file = _safe(p.subtask_name) or _safe(p.get_file_name)
+            s.speed_level = _safe(p.get_print_speed)
+
+            light = _safe(p.get_light_state)
+            s.light_on = (str(light).lower() == "on") if light is not None else None
+
+            s.fan_speeds = {
+                "part": _pct(_safe(getattr(p.mqtt_client, "get_part_fan_speed", None))),
+                "aux": _pct(_safe(getattr(p.mqtt_client, "get_aux_fan_speed", None))),
+                "chamber": _pct(_safe(getattr(p.mqtt_client, "get_chamber_fan_speed", None))),
+            }
+
+            s.ams_trays = self._read_ams_trays(raw)
+            s.hms_errors = [str(e) for e in raw.get("hms", [])] if isinstance(raw.get("hms"), list) else []
+
+            self.state_changed.emit(s)
+        except Exception:
+            logger.exception("failed to pull/normalize printer state")
+
+    def _read_ams_trays(self, raw: dict) -> list[AMSTray]:
+        trays: list[AMSTray] = []
+        try:
+            hub = self._printer.ams_hub()
+            ams_unit = hub[0]
+            active_index = self._active_tray_index(raw)
+            for i in range(4):
+                ft = ams_unit.get_filament_tray(i)
+                if ft is None:
+                    trays.append(AMSTray(slot_index=i, is_empty=True))
+                    continue
+                trays.append(AMSTray(
+                    slot_index=i,
+                    filament_type=getattr(ft, "tray_type", None) or None,
+                    color_hex=_normalize_color(getattr(ft, "tray_color", None)),
+                    is_active=(i == active_index),
+                    is_empty=not bool(getattr(ft, "tray_type", None)),
+                ))
+        except Exception:
+            logger.debug("AMS read failed (no AMS attached, or hub not yet populated)", exc_info=True)
+        return trays
+
+    @staticmethod
+    def _active_tray_index(raw: dict) -> int | None:
+        # "ams.tray_now" is a global tray index per Bambu's local MQTT schema;
+        # 255/"255" conventionally means "no tray active". Verify against a
+        # live printer's mqtt_dump() the first time this runs for real.
+        ams_block = raw.get("ams") or {}
+        tray_now = ams_block.get("tray_now") if isinstance(ams_block, dict) else None
+        try:
+            idx = int(tray_now)
+        except (TypeError, ValueError):
+            return None
+        return idx if 0 <= idx < 4 else None
+
+    # -- print job control ------------------------------------------------
+    def start_print(self, filename: str, plate: int = 1) -> None:
+        self._call(self._printer.start_print, filename, plate, use_ams=True)
+
+    def pause_print(self) -> None:
+        self._call(self._printer.pause_print)
+
+    def resume_print(self) -> None:
+        self._call(self._printer.resume_print)
+
+    def stop_print(self) -> None:
+        self._call(self._printer.stop_print)
+
+    def set_speed_level(self, level: int) -> None:
+        self._call(self._printer.set_print_speed, level)
+
+    # -- temperature / motion --------------------------------------------
+    def set_nozzle_target(self, celsius: int) -> None:
+        self._call(self._printer.set_nozzle_temperature, celsius)
+
+    def set_bed_target(self, celsius: int) -> None:
+        self._call(self._printer.set_bed_temperature, celsius)
+
+    def home_axes(self) -> None:
+        self._call(self._printer.home_printer)
+
+    def jog(self, axis: str, distance_mm: float) -> None:
+        # No dedicated X/Y jog method in bambulabs_api's high-level API (only
+        # move_z_axis() for Z) -- fall back to raw G-code via printer.gcode(),
+        # which the library does expose and validate. Relative move, then
+        # back to absolute positioning mode (G90) to match printer defaults.
+        axis = axis.upper()
+        if axis == "Z":
+            self._call(self._printer.move_z_axis, int(distance_mm))
+            return
+        self._call(self._printer.gcode, ["G91", f"G1 {axis}{distance_mm} F3000", "G90"])
+
+    def extrude(self, mm: float) -> None:
+        # M83: relative extrusion mode, so mm can be negative to retract.
+        self._call(self._printer.gcode, ["M83", f"G1 E{mm} F300"])
+
+    def set_fan_speed(self, fan: str, percent: int) -> None:
+        setter = {
+            "part": self._printer.set_part_fan_speed,
+            "aux": self._printer.set_aux_fan_speed,
+            "chamber": self._printer.set_chamber_fan_speed,
+        }.get(fan)
+        if setter is None:
+            logger.warning("unknown fan %r", fan)
+            return
+        self._call(setter, percent)
+
+    def light_on(self) -> None:
+        self._call(self._printer.turn_light_on)
+
+    def light_off(self) -> None:
+        self._call(self._printer.turn_light_off)
+
+    # -- AMS / filament ---------------------------------------------------
+    def load_filament(self, slot: int) -> None:
+        # bambulabs_api exposes load_filament_spool()/unload_filament_spool()
+        # for the single external "vt_tray" spool holder, and
+        # set_filament_printer() to *label* a tray's material/color -- but no
+        # high-level "switch AMS to slot N" call. Bambu's local MQTT schema
+        # has an `ams_change_filament` command (see OpenBambuAPI docs) that
+        # isn't wrapped here. Rather than guess an untested raw MQTT payload
+        # against real hardware, surface this clearly so it gets a real
+        # verification pass (Milestone 6) instead of silently doing nothing
+        # or sending something unverified to physical AMS motors.
+        self.error.emit(
+            "AMS per-slot load isn't wired up yet -- needs verification "
+            "against real AMS hardware (see printer/real_backend.py)."
+        )
+
+    def unload_filament(self, slot: int) -> None:
+        self.error.emit(
+            "AMS per-slot unload isn't wired up yet -- needs verification "
+            "against real AMS hardware (see printer/real_backend.py)."
+        )
+
+    # -- files ----------------------------------------------------------------
+    def request_file_list(self) -> None:
+        try:
+            path, names = self._printer.ftp_client.list_cache_dir()
+        except Exception as exc:
+            logger.warning("file list failed: %s", exc)
+            self.error.emit(f"Couldn't list files: {exc}")
+            self.file_list_ready.emit([])
+            return
+        files = [PrintFile(name=n, path=f"{path.rstrip('/')}/{n}") for n in names]
+        self.file_list_ready.emit(files)
+
+    # -- helpers ----------------------------------------------------------------
+    def _call(self, fn, *args, **kwargs):
+        try:
+            fn(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("%s failed: %s", getattr(fn, "__name__", fn), exc)
+            self.error.emit(str(exc))
+
+
+def _safe(fn):
+    if fn is None:
+        return None
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+def _pct(fan_gear_value) -> int:
+    """Bambu reports fan speed as a 0-15 'gear' value on some fields; clamp/scale to 0-100."""
+    if fan_gear_value is None:
+        return 0
+    try:
+        value = float(fan_gear_value)
+    except (TypeError, ValueError):
+        return 0
+    if value <= 15:
+        return round(value / 15 * 100)
+    return round(min(100, value))
+
+
+def _normalize_color(tray_color) -> str | None:
+    if not tray_color:
+        return None
+    s = str(tray_color).lstrip("#")
+    return f"#{s[:6]}" if len(s) >= 6 else None

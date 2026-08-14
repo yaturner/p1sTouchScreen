@@ -1,0 +1,4 @@
+PySide6
+bambulabs_api
+Pillow
+PyYAML

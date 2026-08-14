@@ -1,0 +1,119 @@
+/* A1-esque dark theme: card-style tiles, green accent, color-coded status. */
+
+QWidget#mainWindow, QWidget {
+    background-color: #1b1e23;
+    color: #eaeaea;
+    font-size: 16px;
+}
+
+QWidget#statusBar {
+    background-color: #14161a;
+    border-bottom: 1px solid #2a2e35;
+}
+QLabel#statusNozzle, QLabel#statusBed {
+    color: #cfd3da;
+    padding-right: 12px;
+}
+QLabel#statusConnection, QLabel#statusCamera {
+    font-size: 18px;
+}
+
+QPushButton {
+    background-color: #262a31;
+    border: 1px solid #3a3f47;
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-height: 40px;
+}
+QPushButton:pressed {
+    background-color: #00b371;
+    color: #0b0c0e;
+}
+QPushButton#dangerButton {
+    border-color: #7a2b2b;
+}
+QPushButton#dangerButton:pressed {
+    background-color: #c0392b;
+    color: white;
+}
+
+QWidget#navTile QPushButton#navTileButton {
+    background-color: #23272e;
+    border: 1px solid #333842;
+    border-radius: 16px;
+}
+QWidget#navTile QPushButton#navTileButton:pressed {
+    background-color: #00b371;
+}
+QLabel#navTileIcon {
+    font-size: 64px;
+}
+QLabel#navTileLabel {
+    font-size: 20px;
+    color: #cfd3da;
+}
+
+QPushButton#printBanner {
+    background-color: #10352a;
+    border: 1px solid #00b371;
+    border-radius: 12px;
+    text-align: left;
+    padding: 16px;
+    font-size: 18px;
+}
+
+QFrame#amsSlot {
+    background-color: #23272e;
+    border: 1px solid #333842;
+    border-radius: 10px;
+    padding: 8px;
+}
+QFrame#amsSlot[active="true"] {
+    border: 2px solid #00b371;
+}
+QLabel#amsSwatch {
+    border: 1px solid #444;
+}
+
+QWidget#connectionOverlay {
+    background-color: rgba(10, 12, 14, 200);
+}
+QLabel#connectionOverlayLabel {
+    color: #ffffff;
+    font-size: 22px;
+}
+
+QLabel#cameraFeed {
+    background-color: #000000;
+    border: 1px solid #2a2e35;
+    border-radius: 8px;
+}
+
+QProgressBar {
+    border: 1px solid #333842;
+    border-radius: 6px;
+    text-align: center;
+    background-color: #23272e;
+}
+QProgressBar::chunk {
+    background-color: #00b371;
+    border-radius: 6px;
+}
+
+QDialog#keypadDialog {
+    background-color: #1b1e23;
+}
+QLabel#keypadDisplay {
+    background-color: #14161a;
+    border: 1px solid #333842;
+    border-radius: 8px;
+    font-size: 28px;
+}
+QPushButton#keypadDigit {
+    font-size: 20px;
+}
+QPushButton#keypadConfirm {
+    background-color: #00b371;
+    color: #0b0c0e;
+    font-weight: bold;
+}

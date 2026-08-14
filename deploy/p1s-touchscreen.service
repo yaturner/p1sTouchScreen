@@ -1,0 +1,17 @@
+[Unit]
+Description=P1S Touchscreen Controller
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+# Adjust the path if you clone this repo somewhere other than the pi user's
+# home directory. Uses the venv's python so PySide6/bambulabs_api are found
+# without relying on a globally-activated venv.
+WorkingDirectory=%h/p1sTouchScreen
+ExecStart=%h/p1sTouchScreen/.venv/bin/python3 %h/p1sTouchScreen/main.py
+Restart=on-failure
+RestartSec=3
+Environment=QT_QPA_PLATFORM=wayland
+
+[Install]
+WantedBy=graphical-session.target

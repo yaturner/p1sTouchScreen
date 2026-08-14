@@ -1,0 +1,23 @@
+# On Raspberry Pi OS Bookworm (labwc/Wayland, the default on Pi 4/5),
+# labwc reads ~/.config/labwc/autostart as a shell script, not a
+# freedesktop .desktop file despite the filename here. Append this line to
+# that file (create it if it doesn't exist):
+#
+#   systemctl --user start p1s-touchscreen.service &
+#
+# This is a thin trigger -- p1s-touchscreen.service (see
+# p1s-touchscreen.service in this directory) does the actual work and gives
+# you Restart=on-failure for free, which a bare autostart script launching
+# main.py directly would not.
+#
+# One-time setup:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/p1s-touchscreen.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable p1s-touchscreen.service
+#
+# Screen blanking: labwc's idle/DPMS config surface has moved around across
+# Bookworm point releases. Check `labwc --help` / ~/.config/labwc/rc.xml on
+# your image for the current <idle> or DPMS settings, or disable blanking at
+# the kernel/compositor level (e.g. `wlopm --off` equivalents) -- verify on
+# the actual target OS image rather than assuming one fixed incantation.

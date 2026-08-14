@@ -1,0 +1,54 @@
+"""Single AMS tray/slot widget used on the Filament screen."""
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
+from state import AMSTray
+
+
+class AMSSlotWidget(QFrame):
+    load_requested = Signal(int)
+    unload_requested = Signal(int)
+
+    def __init__(self, slot_index: int, parent=None) -> None:
+        super().__init__(parent)
+        self.slot_index = slot_index
+        self.setObjectName("amsSlot")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+
+        root = QVBoxLayout(self)
+
+        self._swatch = QLabel()
+        self._swatch.setObjectName("amsSwatch")
+        self._swatch.setFixedHeight(28)
+        root.addWidget(self._swatch)
+
+        self._type_label = QLabel(f"Slot {slot_index + 1}")
+        self._type_label.setObjectName("amsTypeLabel")
+        self._type_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._type_label)
+
+        btn_row = QHBoxLayout()
+        self._load_btn = QPushButton("Load")
+        self._load_btn.clicked.connect(lambda: self.load_requested.emit(self.slot_index))
+        btn_row.addWidget(self._load_btn)
+
+        self._unload_btn = QPushButton("Unload")
+        self._unload_btn.clicked.connect(lambda: self.unload_requested.emit(self.slot_index))
+        btn_row.addWidget(self._unload_btn)
+        root.addLayout(btn_row)
+
+        self.set_tray(AMSTray(slot_index=slot_index))
+
+    def set_tray(self, tray: AMSTray) -> None:
+        color = tray.color_hex or "#3a3a3a"
+        self._swatch.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
+        if tray.is_empty:
+            self._type_label.setText(f"Slot {self.slot_index + 1}: Empty")
+        else:
+            active = " • active" if tray.is_active else ""
+            self._type_label.setText(f"Slot {self.slot_index + 1}: {tray.filament_type or '?'}{active}")
+        self.setProperty("active", tray.is_active)
+        self.style().unpolish(self)
+        self.style().polish(self)

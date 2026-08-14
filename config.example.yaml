@@ -1,0 +1,18 @@
+# Copy this file to config.yaml and fill in your printer's details.
+#
+# Find these in Bambu Studio or Bambu Handy: select your P1S -> Settings ->
+# enable "LAN Only Mode" -> the IP, access code, and serial number are shown
+# there (also printed on a sticker on the printer / in the box).
+
+printer:
+  ip: 192.168.1.100
+  access_code: "12345678"
+  serial: "01P00A000000000"
+
+app:
+  # "mock" runs against a synthetic in-app simulator, no printer required.
+  # "real" connects to the printer above over the local network.
+  backend: real
+  fullscreen: true
+  screen_width: 1024
+  screen_height: 600
