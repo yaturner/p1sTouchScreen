@@ -279,15 +279,21 @@ class RealBackend(PrinterBackend):
         )
 
     # -- files ----------------------------------------------------------------
+    _PRINT_FILE_EXTENSIONS = (".3mf", ".gcode")
+
     def request_file_list(self) -> None:
         try:
-            path, names = self._printer.ftp_client.list_cache_dir()
+            path, entries = self._printer.ftp_client.list_cache_dir()
         except Exception as exc:
             logger.warning("file list failed: %s", exc)
             self.error.emit(f"Couldn't list files: {exc}")
             self.file_list_ready.emit([])
             return
-        files = [PrintFile(name=n, path=f"{path.rstrip('/')}/{n}") for n in names]
+        files = []
+        for entry in entries:
+            name, size_bytes = _parse_ftp_list_entry(entry)
+            if name.lower().endswith(self._PRINT_FILE_EXTENSIONS):
+                files.append(PrintFile(name=name, path=f"{path.rstrip('/')}/{name}", size_bytes=size_bytes))
         self.file_list_ready.emit(files)
 
     # -- helpers ----------------------------------------------------------------
@@ -297,6 +303,27 @@ class RealBackend(PrinterBackend):
         except Exception as exc:
             logger.warning("%s failed: %s", getattr(fn, "__name__", fn), exc)
             self.error.emit(str(exc))
+
+
+def _parse_ftp_list_entry(entry: str) -> tuple[str, int | None]:
+    """Parse one line of list_cache_dir()'s output.
+
+    bambulabs_api's PrinterFTPClient.list_cache_dir() returns raw Unix
+    `ls -l`-style directory listing lines (as FTP servers commonly do for
+    LIST), not bare filenames, e.g.:
+        -rw-rw-rw- 1 root root 43745911 Nov 24 2025 0.16mm layer, 2 walls, 6% infill.3mf
+    Filenames themselves may contain spaces, so the split is anchored on
+    the 8 fixed-width fields (perms, links, owner, group, size, month,
+    day, year-or-time) and everything after that is the filename.
+    Falls back to treating the whole line as a filename if it doesn't
+    match that shape (e.g. if a future library version returns bare
+    names instead).
+    """
+    parts = entry.split(None, 8)
+    if len(parts) == 9 and parts[0][0] in "-dl":
+        size_bytes = int(parts[4]) if parts[4].isdigit() else None
+        return parts[8], size_bytes
+    return entry.strip(), None
 
 
 def _safe(fn):
