@@ -240,15 +240,16 @@ class RealBackend(PrinterBackend):
         self._call(self._printer.home_printer)
 
     def jog(self, axis: str, distance_mm: float) -> None:
-        # No dedicated X/Y jog method in bambulabs_api's high-level API (only
-        # move_z_axis() for Z) -- fall back to raw G-code via printer.gcode(),
-        # which the library does expose and validate. Relative move, then
-        # back to absolute positioning mode (G90) to match printer defaults.
+        # No dedicated relative-jog method in bambulabs_api's high-level API.
+        # move_z_axis()/set_bed_height() looked like a Z-jog helper but is
+        # actually an ABSOLUTE move (G0 Z<height>) -- using it here would
+        # send the nozzle to a fixed height rather than nudging it by
+        # distance_mm from wherever it currently is, which for a Z- press
+        # could mean an unexpected large move toward the bed. Use the same
+        # relative G91/G1/G90 pattern as X/Y for all three axes instead.
         axis = axis.upper()
-        if axis == "Z":
-            self._call(self._printer.move_z_axis, int(distance_mm))
-            return
-        self._call(self._printer.gcode, ["G91", f"G1 {axis}{distance_mm} F3000", "G90"])
+        feed = 600 if axis == "Z" else 3000  # slower default feedrate for Z
+        self._call(self._printer.gcode, ["G91", f"G1 {axis}{distance_mm} F{feed}", "G90"])
 
     def extrude(self, mm: float) -> None:
         # M83: relative extrusion mode, so mm can be negative to retract.
@@ -263,7 +264,15 @@ class RealBackend(PrinterBackend):
         if setter is None:
             logger.warning("unknown fan %r", fan)
             return
-        self._call(setter, percent)
+        # These setters interpret an int as a raw 0-255 PWM value (not a
+        # percent!) and a float as a 0-1 fraction -- but the float path has
+        # its own bug (computes 255/speed instead of 255*speed, and
+        # ZeroDivisions at speed=0.0). Confirmed via source inspection.
+        # Convert our UI's 0-100 percent to raw PWM and use the int path,
+        # which is the only one that's actually correct.
+        percent = max(0, min(100, int(percent)))
+        raw_pwm = round(percent / 100 * 255)
+        self._call(setter, raw_pwm)
 
     def light_on(self) -> None:
         self._call(self._printer.turn_light_on)
