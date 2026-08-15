@@ -7,11 +7,13 @@ pending a live printer to verify against.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import queue
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
 import bambulabs_api as bl
 from PySide6.QtCore import QThread, QTimer, Signal
@@ -83,20 +85,20 @@ class ThumbnailLoader(QThread):
     def __init__(self, printer: "bl.Printer", parent=None) -> None:
         super().__init__(parent)
         self._printer = printer
-        self._queue: queue.Queue[str] = queue.Queue()
+        self._queue: queue.Queue[tuple[str, Path]] = queue.Queue()
         self._running = False
 
-    def enqueue(self, path: str) -> None:
-        self._queue.put(path)
+    def enqueue(self, path: str, cache_path: Path) -> None:
+        self._queue.put((path, cache_path))
 
     def run(self) -> None:
         self._running = True
         while self._running:
             try:
-                path = self._queue.get(timeout=0.5)
+                path, cache_path = self._queue.get(timeout=0.5)
             except queue.Empty:
                 continue
-            image = self._extract_thumbnail(path)
+            image = self._extract_thumbnail(path, cache_path)
             if image is not None:
                 self.thumbnail_ready.emit(path, image)
 
@@ -104,7 +106,7 @@ class ThumbnailLoader(QThread):
         self._running = False
         self.wait(2000)
 
-    def _extract_thumbnail(self, path: str) -> QImage | None:
+    def _extract_thumbnail(self, path: str, cache_path: Path) -> QImage | None:
         try:
             buf = self._printer.ftp_client.download_file(path)
         except Exception:
@@ -123,6 +125,10 @@ class ThumbnailLoader(QThread):
         except Exception:
             logger.debug("thumbnail extraction failed for %s", path, exc_info=True)
             return None
+        try:
+            cache_path.write_bytes(png_bytes)
+        except Exception:
+            logger.debug("failed to write thumbnail cache for %s", path, exc_info=True)
         image = QImage.fromData(png_bytes, "PNG")
         return image if not image.isNull() else None
 
@@ -133,6 +139,11 @@ class RealBackend(PrinterBackend):
         self._printer = bl.Printer(ip, access_code, serial)
         self._camera_thread: CameraPollThread | None = None
         self._thumbnail_loader: ThumbnailLoader | None = None
+        # Persistent on-disk cache so revisiting Print Files doesn't
+        # re-download every thumbnail over this printer's (fairly slow) FTP
+        # server every time. Survives app restarts, not just navigation.
+        self._thumbnail_cache_dir = Path(__file__).resolve().parent.parent / ".cache" / "thumbnails"
+        self._thumbnail_cache_dir.mkdir(parents=True, exist_ok=True)
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -513,10 +524,30 @@ class RealBackend(PrinterBackend):
         self.file_list_ready.emit(files)
 
         # Only .3mf files actually embed a thumbnail (a raw .stl has none).
-        if self._thumbnail_loader is not None:
-            for f in files:
-                if f.name.lower().endswith(".3mf") and (f.size_bytes or 0) <= _MAX_THUMBNAIL_FILE_BYTES:
-                    self._thumbnail_loader.enqueue(f.path)
+        for f in files:
+            if not f.name.lower().endswith(".3mf") or (f.size_bytes or 0) > _MAX_THUMBNAIL_FILE_BYTES:
+                continue
+            cache_path = self._thumbnail_cache_path(f.path, f.size_bytes or 0)
+            cached_image = self._load_cached_thumbnail(cache_path)
+            if cached_image is not None:
+                self.thumbnail_ready.emit(f.path, cached_image)
+            elif self._thumbnail_loader is not None:
+                self._thumbnail_loader.enqueue(f.path, cache_path)
+
+    def _thumbnail_cache_path(self, path: str, size_bytes: int) -> Path:
+        # Keyed on path+size rather than path alone: a same-named file
+        # re-sliced/re-uploaded with different content will very likely
+        # differ in size too, so this catches the common "file changed"
+        # case without needing to parse FTP LIST's date column.
+        key = hashlib.sha1(f"{path}:{size_bytes}".encode()).hexdigest()
+        return self._thumbnail_cache_dir / f"{key}.png"
+
+    @staticmethod
+    def _load_cached_thumbnail(cache_path: Path) -> QImage | None:
+        if not cache_path.exists():
+            return None
+        image = QImage(str(cache_path))
+        return image if not image.isNull() else None
 
     # -- helpers ----------------------------------------------------------------
     def _call(self, fn, *args, **kwargs):
