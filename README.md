@@ -82,7 +82,7 @@ Requires Python 3.10+.
 
 ```bash
 git clone <this repo>
-cd p1sTouchScreen
+cd p1sTouchScreen-RPI
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
