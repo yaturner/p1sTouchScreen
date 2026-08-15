@@ -22,6 +22,9 @@ class PrinterBackend(QObject):
     camera_frame = Signal(object)
     # list[PrintFile]
     file_list_ready = Signal(list)
+    # (path: str, thumbnail: QImage) -- emitted lazily per-file after
+    # file_list_ready, since fetching a thumbnail means downloading each file
+    thumbnail_ready = Signal(str, object)
     # str -- surfaced to the UI as a toast/dialog, e.g. command failures
     error = Signal(str)
 

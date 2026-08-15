@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
+import zipfile
+from io import BytesIO
 
 import bambulabs_api as bl
 from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtGui import QImage
 
 from printer.base import PrinterBackend
 from printer.hms_codes import describe_hms
@@ -60,11 +64,75 @@ class CameraPollThread(QThread):
         self.wait(2000)
 
 
+# 3MF files above this size aren't worth a full download just for the
+# embedded preview PNG -- there's no cheap partial-fetch of one zip member
+# over this printer's FTP server, so a full download is the only option.
+_MAX_THUMBNAIL_FILE_BYTES = 15 * 1024 * 1024
+
+
+class ThumbnailLoader(QThread):
+    """Downloads each queued 3MF and extracts its embedded preview PNG.
+
+    Runs one file at a time in the background so a large file library never
+    blocks the UI or the main poll loop -- thumbnails just pop in as they're
+    ready (see thumbnail_ready).
+    """
+
+    thumbnail_ready = Signal(str, object)  # (path, QImage)
+
+    def __init__(self, printer: "bl.Printer", parent=None) -> None:
+        super().__init__(parent)
+        self._printer = printer
+        self._queue: queue.Queue[str] = queue.Queue()
+        self._running = False
+
+    def enqueue(self, path: str) -> None:
+        self._queue.put(path)
+
+    def run(self) -> None:
+        self._running = True
+        while self._running:
+            try:
+                path = self._queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            image = self._extract_thumbnail(path)
+            if image is not None:
+                self.thumbnail_ready.emit(path, image)
+
+    def stop(self) -> None:
+        self._running = False
+        self.wait(2000)
+
+    def _extract_thumbnail(self, path: str) -> QImage | None:
+        try:
+            buf = self._printer.ftp_client.download_file(path)
+        except Exception:
+            logger.debug("thumbnail download failed for %s", path, exc_info=True)
+            return None
+        try:
+            with zipfile.ZipFile(buf) as zf:
+                candidates = [n for n in zf.namelist() if n.startswith("Metadata/") and n.lower().endswith(".png")]
+                if not candidates:
+                    return None
+                # Bambu Studio/OrcaSlicer name the main plate preview
+                # "Metadata/plate_1.png"; prefer that over auxiliary
+                # thumbnails (top view, no-light variant, etc.) if present.
+                preferred = next((n for n in candidates if "plate_1" in n), candidates[0])
+                png_bytes = zf.read(preferred)
+        except Exception:
+            logger.debug("thumbnail extraction failed for %s", path, exc_info=True)
+            return None
+        image = QImage.fromData(png_bytes, "PNG")
+        return image if not image.isNull() else None
+
+
 class RealBackend(PrinterBackend):
     def __init__(self, ip: str, access_code: str, serial: str) -> None:
         super().__init__()
         self._printer = bl.Printer(ip, access_code, serial)
         self._camera_thread: CameraPollThread | None = None
+        self._thumbnail_loader: ThumbnailLoader | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -84,6 +152,9 @@ class RealBackend(PrinterBackend):
         if self._camera_thread is not None:
             self._camera_thread.stop()
             self._camera_thread = None
+        if self._thumbnail_loader is not None:
+            self._thumbnail_loader.stop()
+            self._thumbnail_loader = None
         try:
             self._printer.disconnect()
         except Exception:
@@ -98,6 +169,10 @@ class RealBackend(PrinterBackend):
             logger.warning("printer.connect() failed: %s", exc)
             self.error.emit(f"Connection failed: {exc}")
             return
+        if self._thumbnail_loader is None:
+            self._thumbnail_loader = ThumbnailLoader(self._printer, self)
+            self._thumbnail_loader.thumbnail_ready.connect(self.thumbnail_ready.emit)
+            self._thumbnail_loader.start()
         if self._camera_thread is None:
             self._camera_thread = CameraPollThread(self._printer, self)
             self._camera_thread.frame_ready.connect(self.camera_frame.emit)
@@ -414,7 +489,7 @@ class RealBackend(PrinterBackend):
             raise RuntimeError(f"MQTT publish failed for {payload}")
 
     # -- files ----------------------------------------------------------------
-    _PRINT_FILE_EXTENSIONS = (".3mf", ".gcode")
+    _PRINT_FILE_EXTENSIONS = (".3mf", ".stl")
 
     def request_file_list(self) -> None:
         try:
@@ -436,6 +511,12 @@ class RealBackend(PrinterBackend):
             if name.lower().endswith(self._PRINT_FILE_EXTENSIONS):
                 files.append(PrintFile(name=name, path=f"cache/{name}", size_bytes=size_bytes))
         self.file_list_ready.emit(files)
+
+        # Only .3mf files actually embed a thumbnail (a raw .stl has none).
+        if self._thumbnail_loader is not None:
+            for f in files:
+                if f.name.lower().endswith(".3mf") and (f.size_bytes or 0) <= _MAX_THUMBNAIL_FILE_BYTES:
+                    self._thumbnail_loader.enqueue(f.path)
 
     # -- helpers ----------------------------------------------------------------
     def _call(self, fn, *args, **kwargs):

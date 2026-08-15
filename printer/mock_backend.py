@@ -137,6 +137,18 @@ class MockBackend(PrinterBackend):
     # -- files ----------------------------------------------------------------
     def request_file_list(self) -> None:
         self.file_list_ready.emit(list(_MOCK_FILES))
+        # Fake the real backend's "thumbnails pop in a bit after the list"
+        # behavior (there it's a background download; here it's just a
+        # deliberate delay) so the UI's incremental-icon-loading path gets
+        # exercised in mock mode too.
+        for i, f in enumerate(_MOCK_FILES):
+            QTimer.singleShot(400 + i * 250, lambda f=f: self._emit_mock_thumbnail(f))
+
+    def _emit_mock_thumbnail(self, f: PrintFile) -> None:
+        image = QImage(96, 96, QImage.Format.Format_RGB32)
+        color = _AMS_COLORS[hash(f.path) % len(_AMS_COLORS)]
+        image.fill(QColor(color))
+        self.thumbnail_ready.emit(f.path, image)
 
     # -- internal ----------------------------------------------------------
     def _tick(self) -> None:
