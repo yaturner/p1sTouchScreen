@@ -19,6 +19,7 @@ from ui.status_bar import StatusBar
 from ui.widgets.connection_overlay import ConnectionOverlay
 from ui.widgets.hms_banner import HMSBanner
 from ui.widgets.loading_overlay import LoadingOverlay
+from ui.widgets.toast import Toast
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +42,9 @@ class MainWindow(QMainWindow):
 
         self.hms_banner = HMSBanner()
         outer.addWidget(self.hms_banner)
+
+        self.toast = Toast()
+        outer.addWidget(self.toast)
 
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
@@ -139,7 +143,7 @@ class MainWindow(QMainWindow):
         self._update_overlay_visibility(connection)
 
     def _on_error(self, message: str) -> None:
-        self.hms_banner.show_transient(message)
+        self.toast.show_message(message)
 
     def _on_quit_requested(self) -> None:
         reply = QMessageBox.question(self, "Quit", "Quit the application?")

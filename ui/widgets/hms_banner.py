@@ -34,6 +34,18 @@ class HMSBanner(QWidget):
         self.hide()
 
     def apply_errors(self, messages: list[str]) -> None:
+        if not messages:
+            # The printer itself has no active HMS entries at all -- reset
+            # dismissals so a genuine NEW occurrence of a fault that was
+            # dismissed earlier (even one with the identical message,
+            # since these are keyed by text, not a timestamp/instance id)
+            # shows again rather than staying silently suppressed for the
+            # rest of the session. HMS entries can be safety-relevant on a
+            # 3D printer -- "you dismissed a similar alert an hour ago" is
+            # not a good enough reason to hide a fresh one.
+            self._dismissed_messages.clear()
+            self.hide()
+            return
         active = [m for m in messages if m not in self._dismissed_messages]
         if not active:
             self.hide()
@@ -47,8 +59,3 @@ class HMSBanner(QWidget):
     def _on_dismiss(self) -> None:
         self._dismissed_messages.add(self._label.text())
         self.hide()
-
-    def show_transient(self, message: str) -> None:
-        """Show a one-off backend error (not tied to ongoing HMS state)."""
-        self._label.setText(message)
-        self.show()

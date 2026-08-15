@@ -104,6 +104,14 @@ QPushButton#hmsBannerDismiss {
     padding: 4px 10px;
 }
 
+QLabel#toast {
+    background-color: #262a31;
+    color: #eaeaea;
+    border-bottom: 1px solid #3a3f47;
+    padding: 8px 16px;
+    font-size: 15px;
+}
+
 QWidget#connectionOverlay {
     background-color: rgba(10, 12, 14, 200);
 }
