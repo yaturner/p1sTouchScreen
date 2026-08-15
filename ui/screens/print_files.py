@@ -6,7 +6,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
 from state import PrintFile
@@ -62,6 +62,15 @@ class PrintFilesScreen(QWidget):
         self._sort_dir_btn.clicked.connect(self._on_sort_dir_toggled)
         toolbar.addWidget(self._sort_dir_btn)
         root.addLayout(toolbar)
+        self._toolbar_widgets = [self._search_box, self._sort_combo, self._sort_dir_btn]
+
+        self._loading_bar = QProgressBar()
+        self._loading_bar.setObjectName("filesLoadingBar")
+        self._loading_bar.setRange(0, 0)  # indeterminate
+        self._loading_bar.setTextVisible(False)
+        self._loading_bar.setFixedHeight(6)
+        self._loading_bar.hide()
+        root.addWidget(self._loading_bar)
 
         self._list = QListWidget()
         self._list.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
@@ -79,12 +88,19 @@ class PrintFilesScreen(QWidget):
         self._thumbnails.clear()
         self._list.clear()
         self._items_by_path.clear()
-        self._list.addItem("Loading…")
+        self._list.hide()
+        self._loading_bar.show()
+        for w in self._toolbar_widgets:
+            w.setEnabled(False)
         self._main_window.backend.request_file_list()
 
     def _on_files_ready(self, files: list[PrintFile]) -> None:
         self._files = files
         self._thumbnails.clear()
+        self._loading_bar.hide()
+        self._list.show()
+        for w in self._toolbar_widgets:
+            w.setEnabled(True)
         self._render_list()
 
     def _on_search_changed(self, text: str) -> None:
