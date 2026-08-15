@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import queue
+import threading
 import zipfile
 from datetime import datetime
 from io import BytesIO
@@ -83,9 +84,10 @@ class ThumbnailLoader(QThread):
 
     thumbnail_ready = Signal(str, object)  # (path, QImage)
 
-    def __init__(self, printer: "bl.Printer", parent=None) -> None:
+    def __init__(self, printer: "bl.Printer", ftp_lock: threading.Lock, parent=None) -> None:
         super().__init__(parent)
         self._printer = printer
+        self._ftp_lock = ftp_lock
         self._queue: queue.Queue[tuple[str, Path]] = queue.Queue()
         self._running = False
 
@@ -109,7 +111,11 @@ class ThumbnailLoader(QThread):
 
     def _extract_thumbnail(self, path: str, cache_path: Path) -> QImage | None:
         try:
-            buf = self._printer.ftp_client.download_file(path)
+            # ftplib's FTP object isn't thread-safe -- this thread and the
+            # main-thread file-list request share the same client, so both
+            # must hold this lock around every use of it.
+            with self._ftp_lock:
+                buf = self._printer.ftp_client.download_file(path)
         except Exception:
             logger.debug("thumbnail download failed for %s", path, exc_info=True)
             return None
@@ -134,6 +140,49 @@ class ThumbnailLoader(QThread):
         return image if not image.isNull() else None
 
 
+class _FileListWorker(QThread):
+    """One-shot background fetch of the FTP file listing.
+
+    request_file_list() is called directly from the UI thread (a button
+    click handler); doing the FTP round-trip there would block the GUI even
+    without contention, and would block for however long a concurrent
+    ThumbnailLoader download holds _ftp_lock. Runs once and exits, unlike
+    the long-lived CameraPollThread/ThumbnailLoader.
+    """
+
+    result_ready = Signal(list)  # list[PrintFile]
+    failed = Signal(str)
+
+    def __init__(self, printer: "bl.Printer", ftp_lock: threading.Lock,
+                 extensions: tuple[str, ...], parent=None) -> None:
+        super().__init__(parent)
+        self._printer = printer
+        self._ftp_lock = ftp_lock
+        self._extensions = extensions
+
+    def run(self) -> None:
+        try:
+            # list_cache_dir()'s first return value is NOT a path -- it's
+            # ftplib's raw server response line for the LIST command (e.g.
+            # "226 Directory send OK."), confirmed by reading
+            # PrinterFTPClient.list_directory()'s source. The actual
+            # directory listed is hardcoded to "cache" by list_cache_dir()
+            # itself, so that's the real prefix for each file's path.
+            with self._ftp_lock:
+                _ftp_status_line, entries = self._printer.ftp_client.list_cache_dir()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        files = []
+        for entry in entries:
+            name, size_bytes, modified = _parse_ftp_list_entry(entry)
+            if name.lower().endswith(self._extensions):
+                files.append(PrintFile(
+                    name=name, path=f"cache/{name}", size_bytes=size_bytes, modified=modified,
+                ))
+        self.result_ready.emit(files)
+
+
 class RealBackend(PrinterBackend):
     def __init__(self, ip: str, access_code: str, serial: str) -> None:
         super().__init__()
@@ -145,6 +194,12 @@ class RealBackend(PrinterBackend):
         # server every time. Survives app restarts, not just navigation.
         self._thumbnail_cache_dir = Path(__file__).resolve().parent.parent / ".cache" / "thumbnails"
         self._thumbnail_cache_dir.mkdir(parents=True, exist_ok=True)
+        # bambulabs_api's ftp_client wraps a single ftplib.FTP control
+        # connection that isn't thread-safe; the ThumbnailLoader thread and
+        # request_file_list() (main thread) both use it, so every use must
+        # go through this lock.
+        self._ftp_lock = threading.Lock()
+        self._file_list_worker: _FileListWorker | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -182,7 +237,7 @@ class RealBackend(PrinterBackend):
             self.error.emit(f"Connection failed: {exc}")
             return
         if self._thumbnail_loader is None:
-            self._thumbnail_loader = ThumbnailLoader(self._printer, self)
+            self._thumbnail_loader = ThumbnailLoader(self._printer, self._ftp_lock, self)
             self._thumbnail_loader.thumbnail_ready.connect(self.thumbnail_ready.emit)
             self._thumbnail_loader.start()
         if self._camera_thread is None:
@@ -504,26 +559,21 @@ class RealBackend(PrinterBackend):
     _PRINT_FILE_EXTENSIONS = (".3mf", ".stl")
 
     def request_file_list(self) -> None:
-        try:
-            # list_cache_dir()'s first return value is NOT a path -- it's
-            # ftplib's raw server response line for the LIST command (e.g.
-            # "226 Directory send OK."), confirmed by reading
-            # PrinterFTPClient.list_directory()'s source. The actual
-            # directory listed is hardcoded to "cache" by list_cache_dir()
-            # itself, so that's the real prefix for each file's path.
-            _ftp_status_line, entries = self._printer.ftp_client.list_cache_dir()
-        except Exception as exc:
-            logger.warning("file list failed: %s", exc)
-            self.error.emit(f"Couldn't list files: {exc}")
-            self.file_list_ready.emit([])
-            return
-        files = []
-        for entry in entries:
-            name, size_bytes, modified = _parse_ftp_list_entry(entry)
-            if name.lower().endswith(self._PRINT_FILE_EXTENSIONS):
-                files.append(PrintFile(
-                    name=name, path=f"cache/{name}", size_bytes=size_bytes, modified=modified,
-                ))
+        if self._file_list_worker is not None and self._file_list_worker.isRunning():
+            return  # a request is already in flight
+        worker = _FileListWorker(self._printer, self._ftp_lock, self._PRINT_FILE_EXTENSIONS, self)
+        worker.result_ready.connect(self._on_file_list_result)
+        worker.failed.connect(self._on_file_list_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._file_list_worker = worker
+        worker.start()
+
+    def _on_file_list_failed(self, message: str) -> None:
+        logger.warning("file list failed: %s", message)
+        self.error.emit(f"Couldn't list files: {message}")
+        self.file_list_ready.emit([])
+
+    def _on_file_list_result(self, files: list[PrintFile]) -> None:
         self.file_list_ready.emit(files)
 
         # Only .3mf files actually embed a thumbnail (a raw .stl has none).
