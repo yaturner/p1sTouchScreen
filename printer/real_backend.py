@@ -12,6 +12,7 @@ import json
 import logging
 import queue
 import threading
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
 from io import BytesIO
@@ -140,6 +141,121 @@ class ThumbnailLoader(QThread):
         return image if not image.isNull() else None
 
 
+def _parse_filament_requirements(zip_bytes: bytes) -> list[tuple[str | None, str | None]] | None:
+    """(type, color_hex) per filament a 3MF actually uses, in file order, or
+    None if unavailable (not a zip, no slice_info.config -- e.g. a .stl --
+    or unparseable). Bambu Studio/OrcaSlicer write this at
+    Metadata/slice_info.config; confirmed live against a real downloaded
+    3MF (a <plate> with one <filament id=... type="PLA" color="#RRGGBB".../>
+    per filament actually used)."""
+    try:
+        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+            data = zf.read("Metadata/slice_info.config")
+    except (KeyError, zipfile.BadZipFile):
+        return None
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return None
+    plate = root.find("plate")
+    if plate is None:
+        return None
+    filaments = [(f.get("type"), f.get("color")) for f in plate.findall("filament")]
+    return filaments or None
+
+
+def _match_ams_slot(filament_type: str | None, filament_color: str | None,
+                     trays: list[AMSTray]) -> tuple[int, bool]:
+    """Best AMS slot for a file's required filament, and whether it's a
+    confident (exact type+color) match. Falls back to the first tray with
+    just a matching material type if no color match exists, then to slot 0
+    as a last resort if nothing matches at all -- but only an exact
+    type+color match counts as confident. A type-only match still picks a
+    real slot (using the right material beats guessing slot 0 blind) but
+    is deliberately NOT marked confident: confirmed live against a real
+    printer that when every AMS slot happens to hold the same material in
+    different colors (e.g. four spools of PLA), a naive "type matches"
+    check picks a slot by list order alone and would silently call that
+    confident even though the color is likely wrong."""
+    color = (filament_color or "").upper()
+    ftype = (filament_type or "").upper()
+    loaded = [t for t in trays if not t.is_empty]
+    for t in loaded:
+        if (t.filament_type or "").upper() == ftype and (t.color_hex or "").upper() == color:
+            return t.slot_index, True
+    for t in loaded:
+        if (t.filament_type or "").upper() == ftype:
+            return t.slot_index, False
+    return 0, False
+
+
+class _PrintStartWorker(QThread):
+    """Downloads a 3MF and resolves which AMS slot each of its filaments
+    should map to, off the UI thread (the same FTP-is-slow reasoning as
+    ThumbnailLoader). Runs once per start_print() call, not long-lived.
+
+    This is the fix for HMS_0700_7000_0002_0008 ("failed to get AMS
+    mapping table"): the app used to always send ams_mapping=[0]
+    regardless of what the file actually needs or what's physically
+    loaded, which the printer's firmware can legitimately refuse if slot
+    0's loaded filament doesn't match what the file was sliced for --
+    confirmed as the real cause via a live user report on a single-color
+    file, ruling out a filament-count mismatch as the explanation.
+    """
+
+    resolved = Signal(list, object)  # (ams_mapping, warning_message | None)
+
+    def __init__(self, printer: "bl.Printer", ftp_lock: threading.Lock,
+                 filename: str, trays: list[AMSTray], parent=None) -> None:
+        super().__init__(parent)
+        self._printer = printer
+        self._ftp_lock = ftp_lock
+        self._filename = filename
+        self._trays = trays
+
+    def run(self) -> None:
+        ams_mapping = [0]
+        warning: str | None = None
+        if self._filename.lower().endswith(".3mf"):
+            filaments = None
+            try:
+                with self._ftp_lock:
+                    buf = self._printer.ftp_client.download_file(self._filename)
+                zip_bytes = buf.getvalue() if hasattr(buf, "getvalue") else buf
+                filaments = _parse_filament_requirements(zip_bytes)
+            except Exception:
+                logger.debug("couldn't read filament requirements for %s", self._filename, exc_info=True)
+            if filaments:
+                loaded_types = {(t.filament_type or "").upper() for t in self._trays if not t.is_empty}
+                mapping = []
+                no_material: list[str] = []
+                color_unconfirmed: list[str] = []
+                for ftype, color in filaments:
+                    slot, matched = _match_ams_slot(ftype, color, self._trays)
+                    mapping.append(slot)
+                    if matched:
+                        continue
+                    if (ftype or "").upper() in loaded_types:
+                        color_unconfirmed.append(ftype or "unknown")
+                    else:
+                        no_material.append(ftype or "unknown")
+                ams_mapping = mapping
+                messages = []
+                if no_material:
+                    messages.append(
+                        "No loaded AMS spool matches this file's "
+                        f"{'/'.join(no_material)} -- guessing a slot; the print will likely "
+                        "fail or use the wrong material."
+                    )
+                if color_unconfirmed:
+                    messages.append(
+                        f"Found {'/'.join(color_unconfirmed)} loaded, but not in the exact "
+                        "color this file expects -- double check the AMS before printing."
+                    )
+                warning = " ".join(messages) or None
+        self.resolved.emit(ams_mapping, warning)
+
+
 class _FileListWorker(QThread):
     """One-shot background fetch of the FTP file listing.
 
@@ -201,6 +317,7 @@ class RealBackend(PrinterBackend):
         # go through this lock.
         self._ftp_lock = threading.Lock()
         self._file_list_worker: _FileListWorker | None = None
+        self._print_start_worker: _PrintStartWorker | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -375,6 +492,22 @@ class RealBackend(PrinterBackend):
     _PRINT_START_RETRY_DELAY_MS = 6000
 
     def start_print(self, filename: str, plate: int = 1) -> None:
+        # Which AMS slot(s) to feed from isn't knowable without looking at
+        # the file: resolve it in the background first (see
+        # _PrintStartWorker), then actually start the print once that's
+        # back. This is a real network round-trip now (download + parse),
+        # not instant like before -- unavoidable, since the printer's own
+        # firmware can reject a wrong guess with HMS_0700_7000_0002_0008.
+        worker = _PrintStartWorker(self._printer, self._ftp_lock, filename, list(self._state.ams_trays), self)
+        worker.resolved.connect(lambda mapping, warning: self._on_print_start_resolved(filename, plate, mapping, warning))
+        worker.finished.connect(worker.deleteLater)
+        self._print_start_worker = worker
+        worker.start()
+
+    def _on_print_start_resolved(self, filename: str, plate: int, ams_mapping: list[int], warning: str | None) -> None:
+        self._print_start_worker = None
+        if warning:
+            self.error.emit(warning)
         # bambulabs_api's start_print()/start_print_3mf() reference the file
         # via "url": "ftp:///{filename}". Confirmed live on a P1S this
         # reliably fails to actually start the print (gcode_state stuck on
@@ -387,9 +520,9 @@ class RealBackend(PrinterBackend):
         # (not-yet-cached) job occasionally needed a second attempt via
         # Bambu's own official client too, for reasons unrelated to payload
         # correctness.
-        self._start_print_attempt(filename, plate, allow_retry=True)
+        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
 
-    def _start_print_attempt(self, filename: str, plate: int, allow_retry: bool) -> None:
+    def _start_print_attempt(self, filename: str, plate: int, ams_mapping: list[int], allow_retry: bool) -> None:
         bare_name = filename.rsplit("/", 1)[-1]
         plate_location = f"Metadata/plate_{int(plate)}.gcode" if isinstance(plate, int) else plate
         self._call(self._publish_raw, {
@@ -406,35 +539,33 @@ class RealBackend(PrinterBackend):
                 "flow_cali": True,
                 "vibration_cali": True,
                 "layer_inspect": False,
-                # use_ams=True + ams_mapping=[0]: live-tested both
-                # directions on a P1S with an AMS attached (no external
-                # spool). use_ams=False caused a DIFFERENT real failure --
+                # use_ams=False caused a DIFFERENT real failure --
                 # "External filament is missing" -- because it tells the
                 # printer to feed from the external spool holder, which
-                # doesn't exist here. use_ams=True + ams_mapping=[0] (map
-                # the file's first/only filament to AMS slot 0) is correct
-                # for single-material files; a file whose embedded
-                # object/color mapping expects more than one filament may
-                # still fail with HMS_0700_7000_0002_0008 ("failed to get
-                # AMS mapping table") since this app doesn't parse a 3MF's
-                # internal multi-material metadata to build a real mapping.
-                # That failure now surfaces as a readable message (see
-                # hms_codes.py) instead of silently doing nothing.
+                # doesn't exist here. use_ams=True is always correct for an
+                # AMS-equipped printer; ams_mapping is resolved per-file by
+                # _PrintStartWorker (see start_print()) instead of the
+                # hardcoded [0] this used to send unconditionally, which is
+                # what caused HMS_0700_7000_0002_0008 ("failed to get AMS
+                # mapping table") whenever slot 0 didn't happen to hold the
+                # filament the file actually wants -- confirmed via a live
+                # report on a single-color file, so it was never really
+                # about multi-material files specifically.
                 "use_ams": True,
-                "ams_mapping": [0],
+                "ams_mapping": ams_mapping,
             },
         })
         if allow_retry:
             QTimer.singleShot(
                 self._PRINT_START_RETRY_DELAY_MS,
-                lambda: self._check_print_start_result(filename, plate),
+                lambda: self._check_print_start_result(filename, plate, ams_mapping),
             )
 
-    def _check_print_start_result(self, filename: str, plate: int) -> None:
+    def _check_print_start_result(self, filename: str, plate: int, ams_mapping: list[int]) -> None:
         raw_print = (self._printer.mqtt_dump() or {}).get("print") or {}
         if raw_print.get("gcode_state") == "FAILED":
             logger.info("start_print failed on first attempt, retrying once")
-            self._start_print_attempt(filename, plate, allow_retry=False)
+            self._start_print_attempt(filename, plate, ams_mapping, allow_retry=False)
 
     def pause_print(self) -> None:
         self._call(self._printer.pause_print)
