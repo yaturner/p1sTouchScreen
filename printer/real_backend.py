@@ -184,11 +184,12 @@ class _FileListWorker(QThread):
 
 
 class RealBackend(PrinterBackend):
-    def __init__(self, ip: str, access_code: str, serial: str) -> None:
+    def __init__(self, ip: str, access_code: str, serial: str, skip_thumbnails: bool = False) -> None:
         super().__init__()
         self._printer = bl.Printer(ip, access_code, serial)
         self._camera_thread: CameraPollThread | None = None
         self._thumbnail_loader: ThumbnailLoader | None = None
+        self._skip_thumbnails = skip_thumbnails
         # Persistent on-disk cache so revisiting Print Files doesn't
         # re-download every thumbnail over this printer's (fairly slow) FTP
         # server every time. Survives app restarts, not just navigation.
@@ -236,7 +237,7 @@ class RealBackend(PrinterBackend):
             logger.warning("printer.connect() failed: %s", exc)
             self.error.emit(f"Connection failed: {exc}")
             return
-        if self._thumbnail_loader is None:
+        if self._thumbnail_loader is None and not self._skip_thumbnails:
             self._thumbnail_loader = ThumbnailLoader(self._printer, self._ftp_lock, self)
             self._thumbnail_loader.thumbnail_ready.connect(self.thumbnail_ready.emit)
             self._thumbnail_loader.start()
@@ -583,6 +584,8 @@ class RealBackend(PrinterBackend):
 
     def _on_file_list_result(self, files: list[PrintFile]) -> None:
         self.file_list_ready.emit(files)
+        if self._skip_thumbnails:
+            return
 
         # Only .3mf files actually embed a thumbnail (a raw .stl has none).
         for f in files:

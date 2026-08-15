@@ -10,6 +10,18 @@ Screens: Home, Print Files (browse/search/sort, 3MF/STL thumbnails),
 Print Monitor (live camera, progress, pause/resume/stop), Filament/AMS
 (4-slot), Control (jog/home/extrude/fans/light/temps), Settings.
 
+**Print Files can be slow to load thumbnails the first time.** This
+printer's FTP transfer speed over FTPS is slow in practice (tens of KB/s,
+not the multi-MB/s you'd expect on a LAN -- likely the printer's own
+embedded CPU being the bottleneck for the TLS overhead, not the network),
+so downloading and caching a preview image for every file in a large
+library can take several minutes the first time you open Print Files.
+Thumbnails are cached to disk afterward (`.cache/thumbnails/`), so this
+is a one-time cost per file (until it's re-sliced/re-uploaded). If you'd
+rather skip this entirely, toggle **Skip Thumbnails** in Settings (or set
+`app.skip_thumbnails: true` in `config.yaml`) -- Print Files will still
+list every file, just without previews.
+
 ## Screenshots
 
 | Home | Print Files |

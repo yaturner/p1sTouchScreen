@@ -30,6 +30,12 @@ class AppConfig:
     fullscreen: bool = True
     screen_width: int = 1024
     screen_height: int = 600
+    # This printer's real-world FTPS throughput is slow (tens of KB/s, not
+    # the multi-MB/s you'd expect on a LAN), so downloading+caching a
+    # thumbnail for every file in a large library can take several minutes
+    # the first time Print Files loads. Lets a user with a large/slow
+    # library skip that entirely.
+    skip_thumbnails: bool = False
 
 
 @dataclass
@@ -65,6 +71,7 @@ def load_config(path: Path | None = None) -> Config:
         fullscreen=bool(app_raw.get("fullscreen", True)),
         screen_width=int(app_raw.get("screen_width", 1024)),
         screen_height=int(app_raw.get("screen_height", 600)),
+        skip_thumbnails=bool(app_raw.get("skip_thumbnails", False)),
     )
     return Config(printer=printer, app=app, path=path)
 
@@ -81,6 +88,7 @@ def save_config(config: Config) -> None:
             "fullscreen": config.app.fullscreen,
             "screen_width": config.app.screen_width,
             "screen_height": config.app.screen_height,
+            "skip_thumbnails": config.app.skip_thumbnails,
         },
     }
     with config.path.open("w") as fh:

@@ -25,7 +25,10 @@ def build_backend(config, force_mock: bool):
         # imported lazily: bambulabs_api pulls in paho-mqtt/pyftpdlib-style
         # deps that the mock-only dev workflow shouldn't need to have installed.
         from printer.real_backend import RealBackend
-        return RealBackend(config.printer.ip, config.printer.access_code, config.printer.serial)
+        return RealBackend(
+            config.printer.ip, config.printer.access_code, config.printer.serial,
+            skip_thumbnails=config.app.skip_thumbnails,
+        )
     return MockBackend()
 
 

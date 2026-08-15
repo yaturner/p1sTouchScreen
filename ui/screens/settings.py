@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 import bambulabs_api
+from config import save_config
 from state import PrinterState
 
 _APP_VERSION = "0.1.0"
@@ -52,6 +53,20 @@ class SettingsScreen(QWidget):
         display_row.addStretch(1)
         root.addLayout(display_row)
         self._update_fullscreen_button()
+
+        thumb_row = QHBoxLayout()
+        thumb_label = QLabel(
+            "Skip thumbnails (this printer's FTP is slow -- a large file "
+            "library can take several minutes to load previews the first "
+            "time):"
+        )
+        thumb_label.setWordWrap(True)
+        thumb_row.addWidget(thumb_label, 1)
+        self._skip_thumbnails_btn = QPushButton()
+        self._skip_thumbnails_btn.clicked.connect(self._on_toggle_skip_thumbnails)
+        thumb_row.addWidget(self._skip_thumbnails_btn)
+        root.addLayout(thumb_row)
+        self._update_skip_thumbnails_button()
 
         root.addWidget(QLabel(""))
         root.addWidget(QLabel(f"App version: {_APP_VERSION}"))
@@ -99,6 +114,25 @@ class SettingsScreen(QWidget):
     def _on_toggle_fullscreen(self) -> None:
         self._main_window.set_fullscreen(not self._main_window.config.app.fullscreen)
         self._update_fullscreen_button()
+
+    def _update_skip_thumbnails_button(self) -> None:
+        skipping = self._main_window.config.app.skip_thumbnails
+        self._skip_thumbnails_btn.setText("Show Thumbnails" if skipping else "Skip Thumbnails")
+
+    def _on_toggle_skip_thumbnails(self) -> None:
+        cfg = self._main_window.config
+        cfg.app.skip_thumbnails = not cfg.app.skip_thumbnails
+        save_config(cfg)
+        self._update_skip_thumbnails_button()
+        # RealBackend decides whether to start the thumbnail loader once at
+        # construction time (same restart-required pattern as changing the
+        # printer connection fields in First Run), so this can't take effect
+        # live -- matches the rest of this screen's "please restart
+        # manually" style rather than main.py's fullscreen live-toggle.
+        QMessageBox.information(
+            self, "Saved",
+            "Restart the app (see Restart App below) for this to take effect.",
+        )
 
     def _on_restart_app(self) -> None:
         reply = QMessageBox.question(self, "Restart App", "Restart the application now?")

@@ -16,3 +16,8 @@ app:
   fullscreen: true
   screen_width: 1024
   screen_height: 600
+  # This printer's FTP transfer is slow in practice, so a large file
+  # library can take several minutes to download+cache thumbnails the
+  # first time Print Files loads. Set true to skip downloading/showing
+  # thumbnails entirely (also available as a toggle in Settings).
+  skip_thumbnails: false
