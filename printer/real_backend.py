@@ -208,18 +208,41 @@ class RealBackend(PrinterBackend):
     _PRINT_START_RETRY_DELAY_MS = 6000
 
     def start_print(self, filename: str, plate: int = 1) -> None:
-        # Empirically confirmed on a live P1S (both via this app's own
-        # project_file command and via Bambu Studio/Handy's own client):
-        # a print job that isn't already in the printer's recent-job cache
-        # reliably fails (gcode_state -> FAILED, 0%) on its FIRST start
-        # attempt and succeeds on an immediate second attempt with the
-        # identical command. Not a payload bug -- confirmed the exact same
-        # command that fails once succeeds when simply resent. So retry
-        # once automatically rather than surfacing a spurious failure.
+        # bambulabs_api's start_print()/start_print_3mf() reference the file
+        # via "url": "ftp:///{filename}". Confirmed live on a P1S this
+        # reliably fails to actually start the print (gcode_state stuck on
+        # IDLE/FAILED, 0% progress, no heating) even for a file that prints
+        # fine via Bambu Studio/Handy. Live-tested fix: reference the file
+        # via its LOCAL path on the printer's own SD card
+        # ("file:///sdcard/<path>") instead -- this went
+        # IDLE -> PREPARE -> RUNNING in ~12s with no retry needed. Kept a
+        # one-shot retry as a safety net anyway, since a brand-new
+        # (not-yet-cached) job occasionally needed a second attempt via
+        # Bambu's own official client too, for reasons unrelated to payload
+        # correctness.
         self._start_print_attempt(filename, plate, allow_retry=True)
 
     def _start_print_attempt(self, filename: str, plate: int, allow_retry: bool) -> None:
-        self._call(self._printer.start_print, filename, plate, use_ams=True)
+        bare_name = filename.rsplit("/", 1)[-1]
+        plate_location = f"Metadata/plate_{int(plate)}.gcode" if isinstance(plate, int) else plate
+        self._call(self._publish_raw, {
+            "print": {
+                "sequence_id": "2000",
+                "command": "project_file",
+                "param": plate_location,
+                "subtask_name": bare_name,
+                "file": bare_name,
+                "url": f"file:///sdcard/{filename}",
+                "timelapse": False,
+                "bed_leveling": True,
+                "bed_type": "textured_plate",
+                "flow_cali": True,
+                "vibration_cali": True,
+                "layer_inspect": False,
+                "use_ams": True,
+                "ams_mapping": [0],
+            },
+        })
         if allow_retry:
             QTimer.singleShot(
                 self._PRINT_START_RETRY_DELAY_MS,
@@ -229,7 +252,7 @@ class RealBackend(PrinterBackend):
     def _check_print_start_result(self, filename: str, plate: int) -> None:
         raw_print = (self._printer.mqtt_dump() or {}).get("print") or {}
         if raw_print.get("gcode_state") == "FAILED":
-            logger.info("start_print failed on first attempt (known printer quirk), retrying once")
+            logger.info("start_print failed on first attempt, retrying once")
             self._start_print_attempt(filename, plate, allow_retry=False)
 
     def pause_print(self) -> None:
