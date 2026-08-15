@@ -507,7 +507,7 @@ class RealBackend(PrinterBackend):
     def _on_print_start_resolved(self, filename: str, plate: int, ams_mapping: list[int], warning: str | None) -> None:
         self._print_start_worker = None
         if warning:
-            self.error.emit(warning)
+            self.print_start_warning.emit(warning)
         # bambulabs_api's start_print()/start_print_3mf() reference the file
         # via "url": "ftp:///{filename}". Confirmed live on a P1S this
         # reliably fails to actually start the print (gcode_state stuck on

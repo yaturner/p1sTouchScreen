@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self.backend.state_changed.connect(self._on_state_changed)
         self.backend.connection_changed.connect(self._on_connection_changed)
         self.backend.error.connect(self._on_error)
+        self.backend.print_start_warning.connect(self._on_print_start_warning)
 
     def _build_screens(self) -> None:
         # imported here (not at module top) to avoid a circular import: the
@@ -144,6 +145,12 @@ class MainWindow(QMainWindow):
 
     def _on_error(self, message: str) -> None:
         self.toast.show_message(message)
+
+    def _on_print_start_warning(self, message: str) -> None:
+        # A modal the user has to actively dismiss, not a toast -- this is
+        # specific/actionable enough (e.g. "load the right filament") that
+        # it shouldn't be easy to miss the way an auto-hiding toast is.
+        QMessageBox.warning(self, "Print Started", message)
 
     def _on_quit_requested(self) -> None:
         reply = QMessageBox.question(self, "Quit", "Quit the application?")

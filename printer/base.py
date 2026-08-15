@@ -27,6 +27,10 @@ class PrinterBackend(QObject):
     thumbnail_ready = Signal(str, object)
     # str -- surfaced to the UI as a toast/dialog, e.g. command failures
     error = Signal(str)
+    # str -- a specific, actionable heads-up about a print that already
+    # started (e.g. an uncertain AMS filament match), shown as a dialog the
+    # user has to actively dismiss rather than a toast that could be missed
+    print_start_warning = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
