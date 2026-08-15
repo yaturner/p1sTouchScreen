@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import time
+from datetime import datetime, timedelta
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
@@ -15,10 +16,14 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from printer.base import PrinterBackend
 from state import AMSTray, ConnectionState, GcodeState, PrinterState, PrintFile
 
+_NOW = datetime.now()
 _MOCK_FILES = [
-    PrintFile(name="benchy.gcode.3mf", path="/benchy.gcode.3mf", size_bytes=1_200_000),
-    PrintFile(name="calibration_cube.3mf", path="/calibration_cube.3mf", size_bytes=340_000),
-    PrintFile(name="bracket_v3.gcode.3mf", path="/bracket_v3.gcode.3mf", size_bytes=980_000),
+    PrintFile(name="benchy.gcode.3mf", path="/benchy.gcode.3mf", size_bytes=1_200_000,
+              modified=_NOW - timedelta(days=1)),
+    PrintFile(name="calibration_cube.3mf", path="/calibration_cube.3mf", size_bytes=340_000,
+              modified=_NOW - timedelta(days=10)),
+    PrintFile(name="bracket_v3.gcode.3mf", path="/bracket_v3.gcode.3mf", size_bytes=980_000,
+              modified=_NOW - timedelta(hours=3)),
 ]
 
 _AMS_COLORS = ["#1E88E5", "#43A047", "#FDD835", "#E53935"]

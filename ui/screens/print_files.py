@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
-    QPushButton, QVBoxLayout, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from state import PrintFile
 
 _ICON_SIZE = 128
+
+_SORT_KEYS = {
+    "Name": lambda f: f.name.lower(),
+    "Date": lambda f: f.modified or datetime.min,
+    "Size": lambda f: f.size_bytes or 0,
+}
 
 
 class PrintFilesScreen(QWidget):
@@ -19,6 +27,10 @@ class PrintFilesScreen(QWidget):
         self.setObjectName("printFilesScreen")
         self._files: list[PrintFile] = []
         self._items_by_path: dict[str, QListWidgetItem] = {}
+        self._thumbnails: dict[str, QPixmap] = {}
+        self._sort_field = "Name"
+        self._sort_desc = False
+        self._search_text = ""
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -33,6 +45,24 @@ class PrintFilesScreen(QWidget):
         header.addWidget(refresh_btn)
         root.addLayout(header)
 
+        toolbar = QHBoxLayout()
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText("Search files…")
+        self._search_box.textChanged.connect(self._on_search_changed)
+        toolbar.addWidget(self._search_box, 1)
+
+        toolbar.addWidget(QLabel("Sort:"))
+        self._sort_combo = QComboBox()
+        self._sort_combo.addItems(list(_SORT_KEYS))
+        self._sort_combo.currentTextChanged.connect(self._on_sort_field_changed)
+        toolbar.addWidget(self._sort_combo)
+
+        self._sort_dir_btn = QPushButton("↑")
+        self._sort_dir_btn.setFixedWidth(44)
+        self._sort_dir_btn.clicked.connect(self._on_sort_dir_toggled)
+        toolbar.addWidget(self._sort_dir_btn)
+        root.addLayout(toolbar)
+
         self._list = QListWidget()
         self._list.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
         self._list.itemActivated.connect(self._on_item_activated)
@@ -45,6 +75,8 @@ class PrintFilesScreen(QWidget):
         self._refresh()
 
     def _refresh(self) -> None:
+        self._files = []
+        self._thumbnails.clear()
         self._list.clear()
         self._items_by_path.clear()
         self._list.addItem("Loading…")
@@ -52,32 +84,65 @@ class PrintFilesScreen(QWidget):
 
     def _on_files_ready(self, files: list[PrintFile]) -> None:
         self._files = files
+        self._thumbnails.clear()
+        self._render_list()
+
+    def _on_search_changed(self, text: str) -> None:
+        self._search_text = text
+        self._render_list()
+
+    def _on_sort_field_changed(self, field: str) -> None:
+        self._sort_field = field
+        self._render_list()
+
+    def _on_sort_dir_toggled(self) -> None:
+        self._sort_desc = not self._sort_desc
+        self._sort_dir_btn.setText("↓" if self._sort_desc else "↑")
+        self._render_list()
+
+    def _visible_files(self) -> list[PrintFile]:
+        files = self._files
+        if self._search_text:
+            needle = self._search_text.lower()
+            files = [f for f in files if needle in f.name.lower()]
+        key_fn = _SORT_KEYS[self._sort_field]
+        return sorted(files, key=key_fn, reverse=self._sort_desc)
+
+    def _render_list(self) -> None:
         self._list.clear()
         self._items_by_path.clear()
-        if not files:
+        if not self._files:
             self._list.addItem("No files found on printer.")
             return
-        for f in files:
+        visible = self._visible_files()
+        if not visible:
+            self._list.addItem("No files match your search.")
+            return
+        for f in visible:
             size = f" ({f.size_bytes // 1024} KB)" if f.size_bytes else ""
             item = QListWidgetItem(f"{f.name}{size}")
+            item.setData(Qt.ItemDataRole.UserRole, f.path)
+            cached = self._thumbnails.get(f.path)
+            if cached is not None:
+                item.setIcon(QIcon(cached))
             self._list.addItem(item)
             self._items_by_path[f.path] = item
 
     def _on_thumbnail_ready(self, path: str, image) -> None:
-        item = self._items_by_path.get(path)
-        if item is None:
-            return  # list was refreshed/navigated away since this was enqueued
         pixmap = QPixmap.fromImage(image).scaled(
             _ICON_SIZE, _ICON_SIZE,
             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation,
         )
-        item.setIcon(QIcon(pixmap))
+        self._thumbnails[path] = pixmap
+        item = self._items_by_path.get(path)
+        if item is not None:
+            item.setIcon(QIcon(pixmap))
 
     def _on_item_activated(self, item: QListWidgetItem) -> None:
-        index = self._list.row(item)
-        if index < 0 or index >= len(self._files):
+        path = item.data(Qt.ItemDataRole.UserRole)
+        chosen = next((f for f in self._files if f.path == path), None)
+        if chosen is None:
             return
-        chosen = self._files[index]
         reply = QMessageBox.question(
             self, "Start Print", f"Print '{chosen.name}'?",
         )

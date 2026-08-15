@@ -12,6 +12,7 @@ import json
 import logging
 import queue
 import zipfile
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -518,9 +519,11 @@ class RealBackend(PrinterBackend):
             return
         files = []
         for entry in entries:
-            name, size_bytes = _parse_ftp_list_entry(entry)
+            name, size_bytes, modified = _parse_ftp_list_entry(entry)
             if name.lower().endswith(self._PRINT_FILE_EXTENSIONS):
-                files.append(PrintFile(name=name, path=f"cache/{name}", size_bytes=size_bytes))
+                files.append(PrintFile(
+                    name=name, path=f"cache/{name}", size_bytes=size_bytes, modified=modified,
+                ))
         self.file_list_ready.emit(files)
 
         # Only .3mf files actually embed a thumbnail (a raw .stl has none).
@@ -558,7 +561,7 @@ class RealBackend(PrinterBackend):
             self.error.emit(str(exc))
 
 
-def _parse_ftp_list_entry(entry: str) -> tuple[str, int | None]:
+def _parse_ftp_list_entry(entry: str) -> tuple[str, int | None, datetime | None]:
     """Parse one line of list_cache_dir()'s output.
 
     bambulabs_api's PrinterFTPClient.list_cache_dir() returns raw Unix
@@ -575,8 +578,22 @@ def _parse_ftp_list_entry(entry: str) -> tuple[str, int | None]:
     parts = entry.split(None, 8)
     if len(parts) == 9 and parts[0][0] in "-dl":
         size_bytes = int(parts[4]) if parts[4].isdigit() else None
-        return parts[8], size_bytes
-    return entry.strip(), None
+        modified = _parse_ftp_mtime(parts[5], parts[6], parts[7])
+        return parts[8], size_bytes, modified
+    return entry.strip(), None, None
+
+
+def _parse_ftp_mtime(month: str, day: str, year_or_time: str) -> datetime | None:
+    # ls -l shows a time (HH:MM, current year implied) for recent files and
+    # a year for older ones -- never both, so the field's shape tells us
+    # which case we're in.
+    try:
+        if ":" in year_or_time:
+            year = datetime.now().year
+            return datetime.strptime(f"{month} {day} {year} {year_or_time}", "%b %d %Y %H:%M")
+        return datetime.strptime(f"{month} {day} {year_or_time}", "%b %d %Y")
+    except ValueError:
+        return None
 
 
 def _safe(fn):

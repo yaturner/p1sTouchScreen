@@ -7,6 +7,7 @@ directly -- it only ever sees these dataclasses, delivered via Qt signals.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 
 
@@ -40,6 +41,7 @@ class PrintFile:
     name: str
     path: str
     size_bytes: int | None = None
+    modified: datetime | None = None
     thumbnail: bytes | None = None
 
 
