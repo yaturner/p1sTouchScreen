@@ -77,6 +77,12 @@ class MockBackend(PrinterBackend):
         self._state.gcode_state = GcodeState.RUNNING
         self._tick()
 
+    def confirm_pending_print(self) -> None:
+        pass  # mock never emits print_start_warning, so nothing is ever pending
+
+    def cancel_pending_print(self) -> None:
+        pass
+
     def pause_print(self) -> None:
         self._state.gcode_state = GcodeState.PAUSE
         self._tick()

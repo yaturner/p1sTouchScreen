@@ -27,9 +27,10 @@ class PrinterBackend(QObject):
     thumbnail_ready = Signal(str, object)
     # str -- surfaced to the UI as a toast/dialog, e.g. command failures
     error = Signal(str)
-    # str -- a specific, actionable heads-up about a print that already
-    # started (e.g. an uncertain AMS filament match), shown as a dialog the
-    # user has to actively dismiss rather than a toast that could be missed
+    # str -- a specific, actionable reason a resolved print hasn't actually
+    # started yet (e.g. an uncertain AMS filament match), shown as a dialog
+    # the user must resolve via confirm_pending_print()/
+    # cancel_pending_print() rather than a toast that could be missed
     print_start_warning = Signal(str)
 
     def __init__(self) -> None:
@@ -50,6 +51,14 @@ class PrinterBackend(QObject):
     # -- print job control ----------------------------------------------
     @abstractmethod
     def start_print(self, filename: str, plate: int = 1) -> None: ...
+
+    # No-ops unless a print_start_warning is currently pending (see that
+    # signal's docstring) -- confirm actually starts it, cancel abandons it.
+    @abstractmethod
+    def confirm_pending_print(self) -> None: ...
+
+    @abstractmethod
+    def cancel_pending_print(self) -> None: ...
 
     @abstractmethod
     def pause_print(self) -> None: ...

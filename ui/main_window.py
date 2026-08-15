@@ -147,10 +147,24 @@ class MainWindow(QMainWindow):
         self.toast.show_message(message)
 
     def _on_print_start_warning(self, message: str) -> None:
-        # A modal the user has to actively dismiss, not a toast -- this is
-        # specific/actionable enough (e.g. "load the right filament") that
-        # it shouldn't be easy to miss the way an auto-hiding toast is.
-        QMessageBox.warning(self, "Print Started", message)
+        # The print hasn't actually started yet at this point (see
+        # RealBackend._on_print_start_resolved) -- this is a real decision,
+        # not just an FYI, so Cancel is the default/focused button rather
+        # than "Print Anyway": a wrong-material print is wasted filament
+        # and time at best, so an accidental Enter-press shouldn't be the
+        # one that commits to it.
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("AMS Filament Mismatch")
+        box.setText(message)
+        print_anyway = box.addButton("Print Anyway", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is print_anyway:
+            self.backend.confirm_pending_print()
+        else:
+            self.backend.cancel_pending_print()
 
     def _on_quit_requested(self) -> None:
         reply = QMessageBox.question(self, "Quit", "Quit the application?")

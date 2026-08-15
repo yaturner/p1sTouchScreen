@@ -318,6 +318,10 @@ class RealBackend(PrinterBackend):
         self._ftp_lock = threading.Lock()
         self._file_list_worker: _FileListWorker | None = None
         self._print_start_worker: _PrintStartWorker | None = None
+        # Set only while waiting on the user to confirm/cancel a print whose
+        # AMS mapping couldn't be confidently resolved -- see
+        # _on_print_start_resolved()/confirm_pending_print()/cancel_pending_print().
+        self._pending_print: tuple[str, int, list[int]] | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -507,7 +511,28 @@ class RealBackend(PrinterBackend):
     def _on_print_start_resolved(self, filename: str, plate: int, ams_mapping: list[int], warning: str | None) -> None:
         self._print_start_worker = None
         if warning:
+            # Don't start yet -- hold the resolved (filename, plate, mapping)
+            # until the UI calls back confirm_pending_print()/
+            # cancel_pending_print() with the user's choice. A wrong-material
+            # print is wasted filament/time at best, so this should be an
+            # active "print anyway?" decision, not just an FYI after the
+            # fact.
+            self._pending_print = (filename, plate, ams_mapping)
             self.print_start_warning.emit(warning)
+            return
+        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
+
+    def confirm_pending_print(self) -> None:
+        if self._pending_print is None:
+            return
+        filename, plate, ams_mapping = self._pending_print
+        self._pending_print = None
+        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
+
+    def cancel_pending_print(self) -> None:
+        self._pending_print = None
+
+    def _start_print_attempt(self, filename: str, plate: int, ams_mapping: list[int], allow_retry: bool) -> None:
         # bambulabs_api's start_print()/start_print_3mf() reference the file
         # via "url": "ftp:///{filename}". Confirmed live on a P1S this
         # reliably fails to actually start the print (gcode_state stuck on
@@ -520,9 +545,6 @@ class RealBackend(PrinterBackend):
         # (not-yet-cached) job occasionally needed a second attempt via
         # Bambu's own official client too, for reasons unrelated to payload
         # correctness.
-        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
-
-    def _start_print_attempt(self, filename: str, plate: int, ams_mapping: list[int], allow_retry: bool) -> None:
         bare_name = filename.rsplit("/", 1)[-1]
         plate_location = f"Metadata/plate_{int(plate)}.gcode" if isinstance(plate, int) else plate
         self._call(self._publish_raw, {
