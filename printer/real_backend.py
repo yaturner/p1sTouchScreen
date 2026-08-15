@@ -559,14 +559,22 @@ class RealBackend(PrinterBackend):
     _PRINT_FILE_EXTENSIONS = (".3mf", ".stl")
 
     def request_file_list(self) -> None:
-        if self._file_list_worker is not None and self._file_list_worker.isRunning():
+        if self._file_list_worker is not None:
             return  # a request is already in flight
         worker = _FileListWorker(self._printer, self._ftp_lock, self._PRINT_FILE_EXTENSIONS, self)
         worker.result_ready.connect(self._on_file_list_result)
         worker.failed.connect(self._on_file_list_failed)
+        # Clear the reference before deleteLater() actually destroys the
+        # C++ object -- otherwise a request_file_list() call arriving after
+        # that destruction but before this Python attribute is cleared
+        # would touch a dangling wrapper and raise a shiboken RuntimeError.
+        worker.finished.connect(self._on_file_list_worker_finished)
         worker.finished.connect(worker.deleteLater)
         self._file_list_worker = worker
         worker.start()
+
+    def _on_file_list_worker_finished(self) -> None:
+        self._file_list_worker = None
 
     def _on_file_list_failed(self, message: str) -> None:
         logger.warning("file list failed: %s", message)
