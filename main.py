@@ -12,8 +12,6 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication
 
 from config import load_config
@@ -53,12 +51,7 @@ def main() -> int:
 
     window = MainWindow(backend, config)
     window.resize(config.app.screen_width, config.app.screen_height)
-
-    if config.app.fullscreen and not args.windowed:
-        window.showFullScreen()
-        app.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
-    else:
-        window.show()
+    window.apply_window_mode(config.app.fullscreen and not args.windowed)
 
     backend.connect_printer()
 

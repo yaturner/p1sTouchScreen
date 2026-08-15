@@ -44,6 +44,15 @@ class SettingsScreen(QWidget):
         reconnect_btn.clicked.connect(self._on_reconnect)
         root.addWidget(reconnect_btn)
 
+        display_row = QHBoxLayout()
+        display_row.addWidget(QLabel("Display mode:"))
+        self._fullscreen_btn = QPushButton()
+        self._fullscreen_btn.clicked.connect(self._on_toggle_fullscreen)
+        display_row.addWidget(self._fullscreen_btn)
+        display_row.addStretch(1)
+        root.addLayout(display_row)
+        self._update_fullscreen_button()
+
         root.addWidget(QLabel(""))
         root.addWidget(QLabel(f"App version: {_APP_VERSION}"))
         root.addWidget(QLabel(f"bambulabs_api version: {getattr(bambulabs_api, '__version__', 'unknown')}"))
@@ -82,6 +91,14 @@ class SettingsScreen(QWidget):
         backend = self._main_window.backend
         backend.disconnect_printer()
         backend.connect_printer()
+
+    def _update_fullscreen_button(self) -> None:
+        is_fullscreen = self._main_window.config.app.fullscreen
+        self._fullscreen_btn.setText("Switch to Windowed" if is_fullscreen else "Switch to Fullscreen")
+
+    def _on_toggle_fullscreen(self) -> None:
+        self._main_window.set_fullscreen(not self._main_window.config.app.fullscreen)
+        self._update_fullscreen_button()
 
     def _on_restart_app(self) -> None:
         reply = QMessageBox.question(self, "Restart App", "Restart the application now?")

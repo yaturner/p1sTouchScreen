@@ -9,9 +9,10 @@ class) and receive state via apply_state()/PrinterState.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout, QWidget
 
-from config import Config
+from config import Config, save_config
 from printer.base import PrinterBackend
 from state import ConnectionState, GcodeState, PrinterState
 from ui.status_bar import StatusBar
@@ -47,6 +48,7 @@ class MainWindow(QMainWindow):
         self._screens: dict[str, QWidget] = {}
         self._current_screen_name: str | None = None
         self._was_printing = False
+        self._cursor_hidden = False
 
         self._overlay = ConnectionOverlay(central)
         self.loading_overlay = LoadingOverlay(central)
@@ -78,6 +80,31 @@ class MainWindow(QMainWindow):
 
         start_screen = "first_run" if not self.config.is_ready else "home"
         self.navigate_to(start_screen)
+
+    def apply_window_mode(self, fullscreen: bool) -> None:
+        """Show fullscreen or windowed without touching config.
+
+        Used both for the initial launch (where main.py's --windowed flag
+        is a temporary dev override, not a saved preference) and
+        internally by set_fullscreen().
+        """
+        app = QApplication.instance()
+        if fullscreen:
+            self.showFullScreen()
+            if not self._cursor_hidden:
+                app.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
+                self._cursor_hidden = True
+        else:
+            if self._cursor_hidden:
+                app.restoreOverrideCursor()
+                self._cursor_hidden = False
+            self.showNormal()
+
+    def set_fullscreen(self, fullscreen: bool) -> None:
+        """User-facing toggle (Settings screen) -- persists the choice."""
+        self.config.app.fullscreen = fullscreen
+        save_config(self.config)
+        self.apply_window_mode(fullscreen)
 
     def register_screen(self, name: str, widget: QWidget) -> None:
         self._screens[name] = widget
