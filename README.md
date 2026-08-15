@@ -10,6 +10,12 @@ Screens: Home, Print Files (browse/search/sort, 3MF/STL thumbnails),
 Print Monitor (live camera, progress, pause/resume/stop), Filament/AMS
 (4-slot), Control (jog/home/extrude/fans/light/temps), Settings.
 
+## Screenshots
+
+| Home | Print Files |
+| --- | --- |
+| ![Home screen](resources/screenshots/home.png) | ![Print Files screen](resources/screenshots/print_files.png) |
+
 ## Disclaimer / limitation of liability
 
 This is an independent, unofficial hobby project, not affiliated with or
