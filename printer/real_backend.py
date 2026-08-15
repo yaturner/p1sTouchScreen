@@ -205,8 +205,32 @@ class RealBackend(PrinterBackend):
         return idx if 0 <= idx < 4 else None
 
     # -- print job control ------------------------------------------------
+    _PRINT_START_RETRY_DELAY_MS = 6000
+
     def start_print(self, filename: str, plate: int = 1) -> None:
+        # Empirically confirmed on a live P1S (both via this app's own
+        # project_file command and via Bambu Studio/Handy's own client):
+        # a print job that isn't already in the printer's recent-job cache
+        # reliably fails (gcode_state -> FAILED, 0%) on its FIRST start
+        # attempt and succeeds on an immediate second attempt with the
+        # identical command. Not a payload bug -- confirmed the exact same
+        # command that fails once succeeds when simply resent. So retry
+        # once automatically rather than surfacing a spurious failure.
+        self._start_print_attempt(filename, plate, allow_retry=True)
+
+    def _start_print_attempt(self, filename: str, plate: int, allow_retry: bool) -> None:
         self._call(self._printer.start_print, filename, plate, use_ams=True)
+        if allow_retry:
+            QTimer.singleShot(
+                self._PRINT_START_RETRY_DELAY_MS,
+                lambda: self._check_print_start_result(filename, plate),
+            )
+
+    def _check_print_start_result(self, filename: str, plate: int) -> None:
+        raw_print = (self._printer.mqtt_dump() or {}).get("print") or {}
+        if raw_print.get("gcode_state") == "FAILED":
+            logger.info("start_print failed on first attempt (known printer quirk), retrying once")
+            self._start_print_attempt(filename, plate, allow_retry=False)
 
     def pause_print(self) -> None:
         self._call(self._printer.pause_print)
