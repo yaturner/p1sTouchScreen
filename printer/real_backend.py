@@ -14,6 +14,7 @@ import bambulabs_api as bl
 from PySide6.QtCore import QThread, QTimer, Signal
 
 from printer.base import PrinterBackend
+from printer.hms_codes import describe_hms
 from printer.image_convert import pil_to_qimage
 from state import AMSTray, ConnectionState, GcodeState, PrinterState, PrintFile
 
@@ -163,11 +164,28 @@ class RealBackend(PrinterBackend):
             }
 
             s.ams_trays = self._read_ams_trays(raw_print)
-            s.hms_errors = [str(e) for e in raw_print.get("hms", [])] if isinstance(raw_print.get("hms"), list) else []
+            s.hms_errors = self._describe_hms_entries(raw_print.get("hms"))
 
             self.state_changed.emit(s)
         except Exception:
             logger.exception("failed to pull/normalize printer state")
+
+    @staticmethod
+    def _describe_hms_entries(entries) -> list[str]:
+        if not isinstance(entries, list):
+            return []
+        described = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            attr, code = entry.get("attr"), entry.get("code")
+            if attr is None or code is None:
+                continue
+            try:
+                described.append(describe_hms(int(attr), int(code)))
+            except (TypeError, ValueError):
+                continue
+        return described
 
     def _read_ams_trays(self, raw: dict) -> list[AMSTray]:
         trays: list[AMSTray] = []
@@ -239,17 +257,22 @@ class RealBackend(PrinterBackend):
                 "flow_cali": True,
                 "vibration_cali": True,
                 "layer_inspect": False,
-                # Hardcoding use_ams=True with ams_mapping=[0] caused a real
-                # failure on a live P1S: "failed to get AMS mapping table"
-                # -- the file's own embedded object/color-to-filament
-                # mapping (set by whatever sliced it) didn't match a
-                # single-entry [0] mapping we invented. This app has no way
-                # to inspect an arbitrary 3MF's real per-object filament
-                # requirements from just a filename, so don't force AMS
-                # mapping resolution at all -- print with whatever's
-                # currently loaded in the hotend/active AMS tray instead.
-                "use_ams": False,
-                "ams_mapping": [],
+                # use_ams=True + ams_mapping=[0]: live-tested both
+                # directions on a P1S with an AMS attached (no external
+                # spool). use_ams=False caused a DIFFERENT real failure --
+                # "External filament is missing" -- because it tells the
+                # printer to feed from the external spool holder, which
+                # doesn't exist here. use_ams=True + ams_mapping=[0] (map
+                # the file's first/only filament to AMS slot 0) is correct
+                # for single-material files; a file whose embedded
+                # object/color mapping expects more than one filament may
+                # still fail with HMS_0700_7000_0002_0008 ("failed to get
+                # AMS mapping table") since this app doesn't parse a 3MF's
+                # internal multi-material metadata to build a real mapping.
+                # That failure now surfaces as a readable message (see
+                # hms_codes.py) instead of silently doing nothing.
+                "use_ams": True,
+                "ams_mapping": [0],
             },
         })
         if allow_retry:

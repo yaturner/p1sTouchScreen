@@ -16,6 +16,7 @@ from printer.base import PrinterBackend
 from state import ConnectionState, GcodeState, PrinterState
 from ui.status_bar import StatusBar
 from ui.widgets.connection_overlay import ConnectionOverlay
+from ui.widgets.hms_banner import HMSBanner
 
 
 class MainWindow(QMainWindow):
@@ -34,6 +35,9 @@ class MainWindow(QMainWindow):
 
         self.status_bar_widget = StatusBar()
         outer.addWidget(self.status_bar_widget)
+
+        self.hms_banner = HMSBanner()
+        outer.addWidget(self.hms_banner)
 
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
@@ -90,6 +94,7 @@ class MainWindow(QMainWindow):
     # -- backend signal handlers -------------------------------------------
     def _on_state_changed(self, state: PrinterState) -> None:
         self.status_bar_widget.apply_state(state)
+        self.hms_banner.apply_errors(state.hms_errors)
         for widget in self._screens.values():
             apply_state = getattr(widget, "apply_state", None)
             if callable(apply_state):
@@ -104,10 +109,7 @@ class MainWindow(QMainWindow):
         self._update_overlay_visibility(connection)
 
     def _on_error(self, message: str) -> None:
-        widget = self._screens.get(self._current_screen_name or "")
-        show_toast = getattr(widget, "show_toast", None)
-        if callable(show_toast):
-            show_toast(message)
+        self.hms_banner.show_transient(message)
 
     def _update_overlay_visibility(self, connection: ConnectionState | None = None) -> None:
         connection = connection if connection is not None else self.backend.state.connection

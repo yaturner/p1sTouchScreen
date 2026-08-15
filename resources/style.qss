@@ -75,6 +75,21 @@ QLabel#amsSwatch {
     border: 1px solid #444;
 }
 
+QWidget#hmsBanner {
+    background-color: #4a2a12;
+    border-bottom: 1px solid #c0392b;
+}
+QLabel#hmsBannerLabel {
+    color: #ffd9b3;
+    font-size: 15px;
+}
+QPushButton#hmsBannerDismiss {
+    background-color: transparent;
+    border: 1px solid #c0392b;
+    min-height: 0px;
+    padding: 4px 10px;
+}
+
 QWidget#connectionOverlay {
     background-color: rgba(10, 12, 14, 200);
 }
