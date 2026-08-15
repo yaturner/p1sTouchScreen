@@ -239,8 +239,17 @@ class RealBackend(PrinterBackend):
                 "flow_cali": True,
                 "vibration_cali": True,
                 "layer_inspect": False,
-                "use_ams": True,
-                "ams_mapping": [0],
+                # Hardcoding use_ams=True with ams_mapping=[0] caused a real
+                # failure on a live P1S: "failed to get AMS mapping table"
+                # -- the file's own embedded object/color-to-filament
+                # mapping (set by whatever sliced it) didn't match a
+                # single-entry [0] mapping we invented. This app has no way
+                # to inspect an arbitrary 3MF's real per-object filament
+                # requirements from just a filename, so don't force AMS
+                # mapping resolution at all -- print with whatever's
+                # currently loaded in the hotend/active AMS tray instead.
+                "use_ams": False,
+                "ams_mapping": [],
             },
         })
         if allow_retry:
