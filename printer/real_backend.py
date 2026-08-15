@@ -21,13 +21,13 @@ from state import AMSTray, ConnectionState, GcodeState, PrinterState, PrintFile
 logger = logging.getLogger(__name__)
 
 _GCODE_STATE_MAP = {
-    bl.GcodeState.IDLE: GcodeState.IDLE,
-    bl.GcodeState.PREPARE: GcodeState.RUNNING,
-    bl.GcodeState.RUNNING: GcodeState.RUNNING,
-    bl.GcodeState.PAUSE: GcodeState.PAUSE,
-    bl.GcodeState.FINISH: GcodeState.FINISH,
-    bl.GcodeState.FAILED: GcodeState.FAILED,
-    bl.GcodeState.UNKNOWN: GcodeState.UNKNOWN,
+    "IDLE": GcodeState.IDLE,
+    "PREPARE": GcodeState.RUNNING,
+    "RUNNING": GcodeState.RUNNING,
+    "PAUSE": GcodeState.PAUSE,
+    "FINISH": GcodeState.FINISH,
+    "FAILED": GcodeState.FAILED,
+    "UNKNOWN": GcodeState.UNKNOWN,
 }
 
 _RECONNECT_INTERVAL_MS = 5000
@@ -142,8 +142,14 @@ class RealBackend(PrinterBackend):
             s.nozzle_target = _safe(getattr(p.mqtt_client, "get_nozzle_temperature_target", None))
             s.bed_target = _safe(getattr(p.mqtt_client, "get_bed_temperature_target", None))
 
-            gstate = _safe(p.get_state)
-            s.gcode_state = _GCODE_STATE_MAP.get(gstate, GcodeState.UNKNOWN)
+            # p.get_state() (bambulabs_api's own decoded getter) was found
+            # to get stuck on a long-running connection -- it kept
+            # reporting PAUSE well after the raw telemetry (and a fresh
+            # connection's own get_state()) had moved on to RUNNING.
+            # Read the raw string directly instead, consistent with how
+            # every other field here is sourced from raw_print.
+            gstate_str = raw_print.get("gcode_state")
+            s.gcode_state = _GCODE_STATE_MAP.get(gstate_str, GcodeState.UNKNOWN)
 
             percent = _safe(p.get_percentage)
             s.print_percent = percent if isinstance(percent, int) else None
