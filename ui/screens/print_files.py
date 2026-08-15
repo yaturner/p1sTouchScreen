@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 
 from state import PrintFile
 
-_ICON_SIZE = 64
+_ICON_SIZE = 128
 
 
 class PrintFilesScreen(QWidget):
