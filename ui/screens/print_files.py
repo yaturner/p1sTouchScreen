@@ -6,10 +6,11 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from state import PrintFile
+from ui.widgets.spinner import Spinner
 
 _ICON_SIZE = 128
 
@@ -82,13 +83,18 @@ class PrintFilesScreen(QWidget):
         root.addLayout(toolbar)
         self._toolbar_widgets = [self._search_box, self._sort_combo, self._sort_dir_btn]
 
-        self._loading_bar = QProgressBar()
-        self._loading_bar.setObjectName("filesLoadingBar")
-        self._loading_bar.setRange(0, 0)  # indeterminate
-        self._loading_bar.setTextVisible(False)
-        self._loading_bar.setFixedHeight(6)
-        self._loading_bar.hide()
-        root.addWidget(self._loading_bar)
+        self._loading_container = QWidget()
+        loading_layout = QVBoxLayout(self._loading_container)
+        loading_layout.addStretch(1)
+        spinner_row = QHBoxLayout()
+        spinner_row.addStretch(1)
+        self._spinner = Spinner(64)
+        spinner_row.addWidget(self._spinner)
+        spinner_row.addStretch(1)
+        loading_layout.addLayout(spinner_row)
+        loading_layout.addStretch(1)
+        self._loading_container.hide()
+        root.addWidget(self._loading_container, 1)
 
         self._list = QListWidget()
         self._list.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
@@ -107,7 +113,8 @@ class PrintFilesScreen(QWidget):
         self._list.clear()
         self._items_by_path.clear()
         self._list.hide()
-        self._loading_bar.show()
+        self._loading_container.show()
+        self._spinner.start()
         for w in self._toolbar_widgets:
             w.setEnabled(False)
         self._main_window.backend.request_file_list()
@@ -115,7 +122,8 @@ class PrintFilesScreen(QWidget):
     def _on_files_ready(self, files: list[PrintFile]) -> None:
         self._files = files
         self._thumbnails.clear()
-        self._loading_bar.hide()
+        self._spinner.stop()
+        self._loading_container.hide()
         self._list.show()
         for w in self._toolbar_widgets:
             w.setEnabled(True)
