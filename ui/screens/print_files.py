@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
@@ -20,6 +20,23 @@ _SORT_KEYS = {
 }
 
 
+def _build_placeholder_icon(size: int) -> QIcon:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor("#23272e"))
+    painter.setPen(QColor("#3a3f47"))
+    painter.drawRoundedRect(1, 1, size - 2, size - 2, 10, 10)
+    font = painter.font()
+    font.setPointSize(int(size * 0.4))
+    painter.setFont(font)
+    painter.setPen(QColor("#6b7280"))
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "📄")
+    painter.end()
+    return QIcon(pixmap)
+
+
 class PrintFilesScreen(QWidget):
     def __init__(self, main_window) -> None:
         super().__init__()
@@ -31,6 +48,7 @@ class PrintFilesScreen(QWidget):
         self._sort_field = "Name"
         self._sort_desc = False
         self._search_text = ""
+        self._placeholder_icon = _build_placeholder_icon(_ICON_SIZE)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -139,8 +157,7 @@ class PrintFilesScreen(QWidget):
             item = QListWidgetItem(f"{f.name}{size}")
             item.setData(Qt.ItemDataRole.UserRole, f.path)
             cached = self._thumbnails.get(f.path)
-            if cached is not None:
-                item.setIcon(QIcon(cached))
+            item.setIcon(QIcon(cached) if cached is not None else self._placeholder_icon)
             self._list.addItem(item)
             self._items_by_path[f.path] = item
 
