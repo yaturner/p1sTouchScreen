@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
 )
 
 from state import PrintFile
-from ui.widgets.spinner import Spinner
 
 _ICON_SIZE = 128
 
@@ -83,19 +82,6 @@ class PrintFilesScreen(QWidget):
         root.addLayout(toolbar)
         self._toolbar_widgets = [self._search_box, self._sort_combo, self._sort_dir_btn]
 
-        self._loading_container = QWidget()
-        loading_layout = QVBoxLayout(self._loading_container)
-        loading_layout.addStretch(1)
-        spinner_row = QHBoxLayout()
-        spinner_row.addStretch(1)
-        self._spinner = Spinner(64)
-        spinner_row.addWidget(self._spinner)
-        spinner_row.addStretch(1)
-        loading_layout.addLayout(spinner_row)
-        loading_layout.addStretch(1)
-        self._loading_container.hide()
-        root.addWidget(self._loading_container, 1)
-
         self._list = QListWidget()
         self._list.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
         self._list.itemActivated.connect(self._on_item_activated)
@@ -112,9 +98,7 @@ class PrintFilesScreen(QWidget):
         self._thumbnails.clear()
         self._list.clear()
         self._items_by_path.clear()
-        self._list.hide()
-        self._loading_container.show()
-        self._spinner.start()
+        self._main_window.loading_overlay.show_loading()
         for w in self._toolbar_widgets:
             w.setEnabled(False)
         self._main_window.backend.request_file_list()
@@ -122,9 +106,7 @@ class PrintFilesScreen(QWidget):
     def _on_files_ready(self, files: list[PrintFile]) -> None:
         self._files = files
         self._thumbnails.clear()
-        self._spinner.stop()
-        self._loading_container.hide()
-        self._list.show()
+        self._main_window.loading_overlay.hide_loading()
         for w in self._toolbar_widgets:
             w.setEnabled(True)
         self._render_list()

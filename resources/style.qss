@@ -112,6 +112,10 @@ QLabel#connectionOverlayLabel {
     font-size: 22px;
 }
 
+QWidget#loadingOverlay {
+    background-color: rgba(10, 12, 14, 160);
+}
+
 QLabel#cameraFeed {
     background-color: #000000;
     border: 1px solid #2a2e35;

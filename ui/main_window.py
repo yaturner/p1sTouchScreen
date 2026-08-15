@@ -17,6 +17,7 @@ from state import ConnectionState, GcodeState, PrinterState
 from ui.status_bar import StatusBar
 from ui.widgets.connection_overlay import ConnectionOverlay
 from ui.widgets.hms_banner import HMSBanner
+from ui.widgets.loading_overlay import LoadingOverlay
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
         self._was_printing = False
 
         self._overlay = ConnectionOverlay(central)
+        self.loading_overlay = LoadingOverlay(central)
 
         self._build_screens()
 
@@ -129,3 +131,4 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().resizeEvent(event)
         self._overlay.setGeometry(self.centralWidget().rect())
+        self.loading_overlay.setGeometry(self.centralWidget().rect())
