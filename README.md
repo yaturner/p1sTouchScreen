@@ -24,9 +24,9 @@ list every file, just without previews.
 
 ## Screenshots
 
-| Home | Print Files |
-| --- | --- |
-| ![Home screen](resources/screenshots/home.png) | ![Print Files screen](resources/screenshots/print_files.png) |
+| Home | Print Files | Settings |
+| --- | --- | --- |
+| ![Home screen](resources/screenshots/home.png) | ![Print Files screen](resources/screenshots/print_files.png) | ![Settings screen with Reconnect, display mode, and Skip Thumbnails](resources/screenshots/settings.png) |
 
 ## Disclaimer / limitation of liability
 
