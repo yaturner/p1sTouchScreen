@@ -2,8 +2,8 @@
 small icon row along the top of the real A1 screen."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from state import ConnectionState, PrinterState
 
@@ -16,6 +16,8 @@ _CONNECTION_ICONS = {
 
 
 class StatusBar(QWidget):
+    quit_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("statusBar")
@@ -41,6 +43,12 @@ class StatusBar(QWidget):
         self._connection_label = QLabel("🔴")
         self._connection_label.setObjectName("statusConnection")
         layout.addWidget(self._connection_label)
+
+        quit_btn = QPushButton("✕")
+        quit_btn.setObjectName("statusQuit")
+        quit_btn.setFixedSize(36, 36)
+        quit_btn.clicked.connect(self.quit_requested.emit)
+        layout.addWidget(quit_btn)
 
     def apply_state(self, state: PrinterState) -> None:
         nozzle_cur = _fmt(state.nozzle_temp)

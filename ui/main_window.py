@@ -9,7 +9,7 @@ class) and receive state via apply_state()/PrinterState.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMainWindow, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout, QWidget
 
 from config import Config
 from printer.base import PrinterBackend
@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
         outer.setSpacing(0)
 
         self.status_bar_widget = StatusBar()
+        self.status_bar_widget.quit_requested.connect(self._on_quit_requested)
         outer.addWidget(self.status_bar_widget)
 
         self.hms_banner = HMSBanner()
@@ -110,6 +111,11 @@ class MainWindow(QMainWindow):
 
     def _on_error(self, message: str) -> None:
         self.hms_banner.show_transient(message)
+
+    def _on_quit_requested(self) -> None:
+        reply = QMessageBox.question(self, "Quit", "Quit the application?")
+        if reply == QMessageBox.StandardButton.Yes:
+            self.close()
 
     def _update_overlay_visibility(self, connection: ConnectionState | None = None) -> None:
         connection = connection if connection is not None else self.backend.state.connection

@@ -17,6 +17,20 @@ QLabel#statusNozzle, QLabel#statusBed {
 QLabel#statusConnection, QLabel#statusCamera {
     font-size: 18px;
 }
+QPushButton#statusQuit {
+    background-color: transparent;
+    border: 1px solid #7a2b2b;
+    border-radius: 18px;
+    min-height: 0px;
+    padding: 0px;
+    margin-left: 8px;
+    color: #e08080;
+    font-weight: bold;
+}
+QPushButton#statusQuit:pressed {
+    background-color: #c0392b;
+    color: white;
+}
 
 QPushButton {
     background-color: #262a31;
