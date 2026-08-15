@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
 from state import GcodeState, PrinterState
@@ -73,7 +73,17 @@ class PrintMonitorScreen(QWidget):
             backend.pause_print()
 
     def _on_stop(self) -> None:
-        self._main_window.backend.stop_print()
+        # Aborting an in-progress print can't be undone (wasted material/
+        # time at minimum), so this defaults to No rather than the Yes/No
+        # convention's usual default -- same reasoning as the AMS mismatch
+        # dialog's Cancel-focused default.
+        reply = QMessageBox.question(
+            self, "Stop Print", "Stop the current print? This can't be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._main_window.backend.stop_print()
 
     def _on_speed_changed(self, text: str) -> None:
         if self._suppress_speed_signal:
