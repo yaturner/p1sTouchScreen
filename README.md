@@ -101,3 +101,7 @@ See `deploy/`:
   Bookworm/labwc (Wayland, the default compositor on Pi 4/5).
 - `autostart-labwc.desktop` -- labwc autostart entry.
 - `x11-fallback.md` -- notes for older X11-based Pi OS images.
+
+## License
+
+[MIT](LICENSE)
