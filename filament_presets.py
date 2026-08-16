@@ -1,14 +1,16 @@
 """Curated filament presets for the AMS slot "Edit" dialog.
 
-Each preset's (tray_info_idx, nozzle_temp_min, nozzle_temp_max, tray_type)
-is copied directly from bambulabs_api's own Filament enum
+Each preset's tray_info_idx/nozzle_temp_min/nozzle_temp_max/tray_type is
+copied directly from bambulabs_api's own Filament enum
 (bambulabs_api/filament_info.py) -- not guessed. That enum only
-distinguishes Bambu Lab's own lines, PolyLite, and PolyTerra by brand;
-everything else uses Bambu's "Generic" tray_info_idx entries (the GFxx99
-family), since the AMS RFID/preset system has no separate index for other
-third-party brands. So Overature/Generic/eSUN intentionally share the same
-underlying preset list here -- the manufacturer choice for those three is
-informational only and doesn't change the MQTT payload beyond material type.
+distinguishes Bambu Lab's own lines, PolyLite, and PolyTerra by brand; the
+AMS RFID/preset system has no separate tray_info_idx for other
+third-party brands. So Overature/eSUN's presets below use their own
+real product-line names (e.g. eSUN's "PLA+") but are still mapped onto
+Bambu's "Generic" PLA tray_info_idx (GFL99) under the hood -- only the
+label is brand-specific, not the underlying MQTT payload. "Generic" (the
+explicit catch-all manufacturer) gets the full Generic material list
+instead of a brand-specific one.
 """
 from __future__ import annotations
 
@@ -60,9 +62,15 @@ PRESETS_BY_MANUFACTURER: dict[str, list[FilamentPreset]] = {
     "Bambu Lab": _BAMBU_PRESETS,
     "PolyLite": [FilamentPreset("PLA", "GFL00", 190, 250, "PLA")],
     "PolyTerra": [FilamentPreset("PLA", "GFL01", 190, 250, "PLA")],
-    "Overature": _GENERIC_PRESETS,
+    # Overature/eSUN product-line names, still mapped onto the Generic PLA
+    # tray_info_idx (GFL99) -- there's no brand-specific index for either
+    # in bambulabs_api's enum, only the label differs from "Generic".
+    "Overature": [
+        FilamentPreset("Matte PLA", "GFL99", 190, 230, "PLA"),
+        FilamentPreset("PLA", "GFL99", 190, 250, "PLA"),
+    ],
     "Generic": _GENERIC_PRESETS,
-    "eSUN": _GENERIC_PRESETS,
+    "eSUN": [FilamentPreset("PLA+", "GFL99", 190, 230, "PLA")],
 }
 
 
