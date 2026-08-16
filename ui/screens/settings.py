@@ -77,6 +77,15 @@ class SettingsScreen(QWidget):
         root.addLayout(thumb_row)
         self._update_skip_thumbnails_button()
 
+        # Full auto-calibration (bed leveling + vibration compensation +
+        # motor noise cancellation) -- a real, multi-minute operation that
+        # physically moves the extruder and print bed, so this needs the
+        # same confirm-before-acting treatment as Stop Print, not a bare
+        # button.
+        calibrate_btn = QPushButton("Run Calibration")
+        calibrate_btn.clicked.connect(self._on_run_calibration)
+        root.addWidget(calibrate_btn)
+
         root.addWidget(QLabel(""))
         root.addWidget(QLabel(f"App version: {_APP_VERSION}"))
         root.addWidget(QLabel(f"bambulabs_api version: {getattr(bambulabs_api, '__version__', 'unknown')}"))
@@ -139,6 +148,18 @@ class SettingsScreen(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
         self._main_window.navigate_to("first_run")
+
+    def _on_run_calibration(self) -> None:
+        reply = QMessageBox.question(
+            self, "Run Calibration",
+            "Run full calibration (bed leveling, vibration compensation, motor "
+            "noise cancellation)? This takes several minutes and moves the "
+            "extruder and print bed -- make sure the bed is clear.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._main_window.backend.run_calibration()
 
     def _update_fullscreen_button(self) -> None:
         is_fullscreen = self._main_window.config.app.fullscreen
