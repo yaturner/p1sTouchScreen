@@ -899,6 +899,19 @@ class RealBackend(PrinterBackend):
             }
         })
 
+    # Bitmask confirmed against bambulabs_api's calibration(): bit 1 = bed
+    # leveling, bit 2 = vibration compensation, bit 3 = motor noise
+    # cancellation. Matches that method's own defaults (all three on).
+    _CALIBRATION_ALL_BITS = (1 << 1) | (1 << 2) | (1 << 3)
+
+    def run_calibration(self) -> None:
+        self._call(self._publish_raw, {
+            "print": {
+                "command": "calibration",
+                "option": self._CALIBRATION_ALL_BITS,
+            }
+        })
+
     def _publish_raw(self, payload: dict) -> None:
         client = self._printer.mqtt_client
         ok = client._client.publish(client.command_topic, json.dumps(payload))

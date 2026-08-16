@@ -122,3 +122,11 @@ class PrinterBackend(QObject):
     # -- files -------------------------------------------------------------
     @abstractmethod
     def request_file_list(self) -> None: ...
+
+    # Runs the printer's own full auto-calibration sequence (bed leveling +
+    # vibration compensation + motor noise cancellation) -- confirmed
+    # against bambulabs_api's calibration(). A real, multi-minute operation
+    # that physically moves the extruder and print bed, so the UI must confirm before
+    # calling this, same as Stop Print.
+    @abstractmethod
+    def run_calibration(self) -> None: ...

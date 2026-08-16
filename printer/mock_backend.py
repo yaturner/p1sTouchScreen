@@ -175,6 +175,9 @@ class MockBackend(PrinterBackend):
         )
         self._tick()
 
+    def run_calibration(self) -> None:
+        pass  # no-op in mock; real backend publishes the calibration command
+
     # -- files ----------------------------------------------------------------
     def request_file_list(self) -> None:
         self.file_list_ready.emit(list(_MOCK_FILES))
