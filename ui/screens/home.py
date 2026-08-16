@@ -27,6 +27,11 @@ class HomeScreen(QWidget):
         grid.setSpacing(16)
         tiles = [
             ("🗂", "Print Files", "print_files"),
+            # Reachable anytime (not just via the print-progress banner
+            # while something's actually printing), matching the Android
+            # port's Home tile grid -- lets you check the camera feed/
+            # status screen preemptively.
+            ("▶", "Print Monitor", "print_monitor"),
             ("🧵", "Filament", "filament_ams"),
             ("🎛", "Control", "control"),
             ("⚙", "Settings", "settings"),
