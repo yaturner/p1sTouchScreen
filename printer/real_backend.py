@@ -433,7 +433,9 @@ class RealBackend(PrinterBackend):
                 "chamber": _pct(_safe(getattr(p.mqtt_client, "get_chamber_fan_speed", None))),
             }
 
-            s.ams_trays = self._read_ams_trays(raw_print)
+            new_trays = self._read_ams_trays(raw_print)
+            if new_trays is not None:
+                s.ams_trays = new_trays
             s.hms_errors = self._describe_hms_entries(raw_print.get("hms"))
 
             self.state_changed.emit(s)
@@ -457,7 +459,21 @@ class RealBackend(PrinterBackend):
                 continue
         return described
 
-    def _read_ams_trays(self, raw: dict) -> list[AMSTray]:
+    def _read_ams_trays(self, raw: dict) -> list[AMSTray] | None:
+        # None (not []) on failure -- bambulabs_api's Printer.process_ams()
+        # rebuilds self.ams_hub from scratch on every MQTT message and only
+        # repopulates it if THAT message happens to carry a full "ams"
+        # block, so hub[0] raises KeyError on any partial telemetry update
+        # that omits it (confirmed live: this fires on a large fraction of
+        # poll ticks, not just once). Returning [] here used to blow away
+        # _pull_state's last-known-good s.ams_trays on every such tick, so
+        # whichever state start_print() happened to catch was a coin flip
+        # between real tray data and empty -- and an empty read meant
+        # _PrintStartWorker silently fell back to ams_mapping=[0] with no
+        # confirmation warning at all, since an empty trays list can't
+        # distinguish "nothing loaded" from "couldn't read". Returning None
+        # instead leaves _pull_state's assignment as a no-op on a transient
+        # failure, so the caller keeps the last good reading.
         trays: list[AMSTray] = []
         try:
             hub = self._printer.ams_hub()
@@ -477,6 +493,7 @@ class RealBackend(PrinterBackend):
                 ))
         except Exception:
             logger.debug("AMS read failed (no AMS attached, or hub not yet populated)", exc_info=True)
+            return None
         return trays
 
     @staticmethod
