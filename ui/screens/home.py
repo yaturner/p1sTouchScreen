@@ -5,6 +5,9 @@ from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QVBoxLayout, QWi
 
 from state import GcodeState, PrinterState
 from ui.widgets.nav_tile import NavTile
+from ui.widgets.robot_face import draw_robot_face
+
+_ASSISTANT_ICON_SIZE = 40
 
 
 class HomeScreen(QWidget):
@@ -37,11 +40,15 @@ class HomeScreen(QWidget):
             ("⚙", "Settings", "settings"),
             ("🩺", "Assistant", "assistant"),
         ]
+        self._assistant_tile: NavTile | None = None
         columns = 3
         for i, (icon, label, target) in enumerate(tiles):
             tile = NavTile(icon, label)
             tile.clicked.connect(lambda t=target: self._main_window.navigate_to(t))
             grid.addWidget(tile, i // columns, i % columns)
+            if target == "assistant":
+                self._assistant_tile = tile
+                tile.set_icon_pixmap(draw_robot_face(sad=False, size=_ASSISTANT_ICON_SIZE))
         rows = -(-len(tiles) // columns)  # ceil division
         for r in range(rows):
             grid.setRowStretch(r, 1)
@@ -58,3 +65,8 @@ class HomeScreen(QWidget):
             self._banner.show()
         else:
             self._banner.hide()
+
+        if self._assistant_tile is not None:
+            self._assistant_tile.set_icon_pixmap(
+                draw_robot_face(sad=bool(state.hms_errors), size=_ASSISTANT_ICON_SIZE)
+            )

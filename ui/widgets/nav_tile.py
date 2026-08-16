@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 
@@ -25,12 +26,18 @@ class NavTile(QWidget):
         inner = QVBoxLayout(self._button)
         inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        icon = QLabel(icon_text)
-        icon.setObjectName("navTileIcon")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(icon)
+        self._icon = QLabel(icon_text)
+        self._icon.setObjectName("navTileIcon")
+        self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(self._icon)
 
         text = QLabel(label)
         text.setObjectName("navTileLabel")
         text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(text)
+
+    def set_icon_pixmap(self, pixmap: QPixmap) -> None:
+        # Swaps the emoji-glyph icon for a drawn one -- used by the
+        # Assistant tile's dynamic happy/sad robot face, which Unicode has
+        # no matching emoji pair for.
+        self._icon.setPixmap(pixmap)
