@@ -30,7 +30,9 @@ class HomeScreen(QWidget):
             ("🧵", "Filament", "filament_ams"),
             ("🎛", "Control", "control"),
             ("⚙", "Settings", "settings"),
-            ("🩺", "Assistant", "settings"),  # calibration wizards are future work; parks on Settings for now
+            # Assistant tile (calibration wizards) hidden until that
+            # feature actually exists -- it used to park on Settings as a
+            # placeholder, which just read as a bug.
         ]
         columns = 3
         for i, (icon, label, target) in enumerate(tiles):
