@@ -391,6 +391,15 @@ class RealBackend(PrinterBackend):
         # AMS mapping couldn't be confidently resolved -- see
         # _on_print_start_resolved()/confirm_pending_print()/cancel_pending_print().
         self._pending_print: tuple[str, int, list[int]] | None = None
+        # (filename, plate) for the in-flight _PrintStartWorker/_AmsLoadWorker
+        # -- read by their bound-method result handlers below instead of a
+        # lambda closure, so PySide can identify `self` as the receiver and
+        # correctly queue the cross-thread signal onto the main thread (a
+        # lambda has no such identifiable receiver and risks running the
+        # handler directly on the worker thread instead).
+        self._pending_start_filename: str | None = None
+        self._pending_start_plate: int = 1
+        self._pending_ams_load_mapping: list[int] | None = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(_POLL_INTERVAL_MS)
@@ -642,12 +651,16 @@ class RealBackend(PrinterBackend):
         # not instant like before -- unavoidable, since the printer's own
         # firmware can reject a wrong guess with HMS_0700_7000_0002_0008.
         worker = _PrintStartWorker(self._printer, self._ftp_lock, filename, list(self._state.ams_trays), self)
-        worker.resolved.connect(lambda mapping, warning: self._on_print_start_resolved(filename, plate, mapping, warning))
+        self._pending_start_filename = filename
+        self._pending_start_plate = plate
+        worker.resolved.connect(self._on_print_start_resolved)
         worker.finished.connect(worker.deleteLater)
         self._print_start_worker = worker
         worker.start()
 
-    def _on_print_start_resolved(self, filename: str, plate: int, ams_mapping: list[int], warning: str | None) -> None:
+    def _on_print_start_resolved(self, ams_mapping: list[int], warning: str | None) -> None:
+        filename = self._pending_start_filename
+        plate = self._pending_start_plate
         self._print_start_worker = None
         if warning:
             # Don't start yet -- hold the resolved (filename, plate, mapping)
@@ -680,13 +693,18 @@ class RealBackend(PrinterBackend):
             self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
             return
         worker = _AmsLoadWorker(self._printer, ams_mapping[0], self._DEFAULT_NOZZLE_TARGET_TEMP, self)
-        worker.finished_waiting.connect(
-            lambda ok: self._on_ams_load_finished(ok, filename, plate, ams_mapping))
+        self._pending_start_filename = filename
+        self._pending_start_plate = plate
+        self._pending_ams_load_mapping = ams_mapping
+        worker.finished_waiting.connect(self._on_ams_load_finished)
         worker.finished.connect(worker.deleteLater)
         self._ams_load_worker = worker
         worker.start()
 
-    def _on_ams_load_finished(self, ok: bool, filename: str, plate: int, ams_mapping: list[int]) -> None:
+    def _on_ams_load_finished(self, ok: bool) -> None:
+        filename = self._pending_start_filename
+        plate = self._pending_start_plate
+        ams_mapping = self._pending_ams_load_mapping or []
         self._ams_load_worker = None
         if not ok:
             logger.warning("timed out waiting for AMS to switch to slot %s", ams_mapping[0])

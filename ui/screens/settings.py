@@ -189,18 +189,30 @@ class SettingsScreen(QWidget):
         )
 
     def _on_restart_app(self) -> None:
-        reply = QMessageBox.question(self, "Restart App", "Restart the application now?")
+        reply = QMessageBox.question(
+            self, "Restart App", "Restart the application now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
         if reply == QMessageBox.StandardButton.Yes:
             import os
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def _on_exit_app(self) -> None:
-        reply = QMessageBox.question(self, "Exit App", "Quit the application?")
+        reply = QMessageBox.question(
+            self, "Exit App", "Quit the application?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
         if reply == QMessageBox.StandardButton.Yes:
             self._main_window.close()
 
     def _on_shutdown_pi(self) -> None:
-        reply = QMessageBox.question(self, "Shutdown Pi", "Shut down the Raspberry Pi now?")
+        reply = QMessageBox.question(
+            self, "Shutdown Pi", "Shut down the Raspberry Pi now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
         if reply == QMessageBox.StandardButton.Yes:
             import subprocess
             subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)

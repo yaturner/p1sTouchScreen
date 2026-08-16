@@ -64,9 +64,12 @@ class AMSSlotWidget(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
         # Disabled while any load/unload is in flight -- firing a second
-        # one mid-swap is untested territory. Also disabled on an empty
-        # slot -- nothing to feed in, retract, or label either way.
-        enabled = not busy and not tray.is_empty
-        self._load_btn.setEnabled(enabled)
-        self._unload_btn.setEnabled(enabled)
+        # one mid-swap is untested territory. Load/Unload are also disabled
+        # on an empty slot -- nothing to feed in or retract. Edit stays
+        # enabled on an empty slot, though: it pre-labels a slot's filament
+        # type/color before a spool is physically inserted, same as the
+        # printer's own Edit-slot screen allows.
+        enabled = not busy
+        self._load_btn.setEnabled(enabled and not tray.is_empty)
+        self._unload_btn.setEnabled(enabled and not tray.is_empty)
         self._edit_btn.setEnabled(enabled)
