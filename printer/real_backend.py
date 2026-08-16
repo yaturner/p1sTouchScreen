@@ -504,6 +504,7 @@ class RealBackend(PrinterBackend):
             new_trays = self._read_ams_trays(raw_print)
             if new_trays is not None:
                 s.ams_trays = new_trays
+            s.ams_busy = self._is_ams_busy(raw_print)
             s.hms_errors = self._describe_hms_entries(raw_print.get("hms"))
 
             self.state_changed.emit(s)
@@ -568,6 +569,24 @@ class RealBackend(PrinterBackend):
         except Exception:
             logger.debug("AMS read failed", exc_info=True)
             return None
+
+    @staticmethod
+    def _is_ams_busy(raw: dict) -> bool:
+        # tray_tar is the AMS's current target slot, tray_now is what's
+        # actually active -- they differ while a switch (load/unload, or
+        # one triggered internally by project_file/ams_change_filament) is
+        # physically in progress and match once it settles. Confirmed live
+        # against this exact field pair while building the AMS pre-load fix
+        # (see _AmsLoadWorker). Missing either field means "can't tell",
+        # not busy.
+        ams_block = raw.get("ams") or {}
+        if not isinstance(ams_block, dict):
+            return False
+        tray_tar = ams_block.get("tray_tar")
+        tray_now = ams_block.get("tray_now")
+        if tray_tar is None or tray_now is None:
+            return False
+        return str(tray_tar) != str(tray_now)
 
     @staticmethod
     def _active_tray_index(raw: dict) -> int | None:

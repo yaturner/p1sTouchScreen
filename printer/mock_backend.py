@@ -45,6 +45,10 @@ class MockBackend(PrinterBackend):
                      is_active=(i == 0), is_empty=False)
             for i in range(4)
         ]
+        # Simulated "AMS busy" window so the Load/Unload/Sync-disabling UI
+        # can be exercised without real hardware -- real backend derives
+        # this from tray_tar != tray_now instead (see _is_ams_busy).
+        self._ams_busy_until = 0.0
 
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(1000)
@@ -134,15 +138,21 @@ class MockBackend(PrinterBackend):
         self._tick()
 
     # -- AMS ----------------------------------------------------------------
+    _AMS_BUSY_SECONDS = 3.0
+
     def load_filament(self, slot: int) -> None:
-        for tray in self._ams_trays:
-            tray.is_active = tray.slot_index == slot
+        self._ams_busy_until = time.monotonic() + self._AMS_BUSY_SECONDS
         self._tick()
+        QTimer.singleShot(int(self._AMS_BUSY_SECONDS * 1000), lambda: self._finish_ams_swap(slot, active=True))
 
     def unload_filament(self, slot: int) -> None:
+        self._ams_busy_until = time.monotonic() + self._AMS_BUSY_SECONDS
+        self._tick()
+        QTimer.singleShot(int(self._AMS_BUSY_SECONDS * 1000), lambda: self._finish_ams_swap(slot, active=False))
+
+    def _finish_ams_swap(self, slot: int, active: bool) -> None:
         for tray in self._ams_trays:
-            if tray.slot_index == slot:
-                tray.is_active = False
+            tray.is_active = active and tray.slot_index == slot
         self._tick()
 
     def sync_ams(self) -> None:
@@ -181,6 +191,7 @@ class MockBackend(PrinterBackend):
         s.light_on = self._light_on
         s.speed_level = self._speed_level
         s.ams_trays = self._ams_trays
+        s.ams_busy = time.monotonic() < self._ams_busy_until
         s.hms_errors = []
 
         if self._printing:

@@ -41,7 +41,7 @@ class AMSSlotWidget(QFrame):
 
         self.set_tray(AMSTray(slot_index=slot_index))
 
-    def set_tray(self, tray: AMSTray) -> None:
+    def set_tray(self, tray: AMSTray, busy: bool = False) -> None:
         color = tray.color_hex or "#3a3a3a"
         self._swatch.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
         if tray.is_empty:
@@ -52,3 +52,9 @@ class AMSSlotWidget(QFrame):
         self.setProperty("active", tray.is_active)
         self.style().unpolish(self)
         self.style().polish(self)
+        # Disabled while any load/unload is in flight -- firing a second
+        # one mid-swap is untested territory. Also disabled on an empty
+        # slot -- nothing to feed in or retract either way.
+        enabled = not busy and not tray.is_empty
+        self._load_btn.setEnabled(enabled)
+        self._unload_btn.setEnabled(enabled)

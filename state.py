@@ -68,6 +68,11 @@ class PrinterState:
 
     ams_trays: list[AMSTray] = field(default_factory=list)
     hms_errors: list[str] = field(default_factory=list)
+    # True while the AMS is actively switching trays (a load/unload/print-
+    # triggered swap is in flight) -- see RealBackend._is_ams_busy(). The UI
+    # uses this to disable Load/Unload/Sync while a swap is already running,
+    # since firing a second one mid-swap is untested territory.
+    ams_busy: bool = False
 
     raw: dict = field(default_factory=dict)
 

@@ -27,6 +27,7 @@ class FilamentAMSScreen(QWidget):
         sync_btn = QPushButton("Sync")
         sync_btn.clicked.connect(self._on_sync)
         header.addWidget(sync_btn)
+        self._sync_btn = sync_btn
         root.addLayout(header)
 
         slots_row = QHBoxLayout()
@@ -60,4 +61,8 @@ class FilamentAMSScreen(QWidget):
         for i, widget in enumerate(self._slots):
             tray = by_index.get(i)
             if tray is not None:
-                widget.set_tray(tray)
+                widget.set_tray(tray, busy=state.ams_busy)
+        # Sync re-requests state that a busy AMS is already mid-transition
+        # on, so gate it the same as Load/Unload rather than letting it
+        # queue behind whatever's currently running.
+        self._sync_btn.setEnabled(not state.ams_busy)
