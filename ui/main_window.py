@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.status_bar_widget)
 
         self.hms_banner = HMSBanner()
+        self.hms_banner.check_solution_requested.connect(lambda: self.navigate_to("assistant"))
         outer.addWidget(self.hms_banner)
 
         self.toast = Toast()
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
     def _build_screens(self) -> None:
         # imported here (not at module top) to avoid a circular import: the
         # screen modules import MainWindow only for type hints.
+        from ui.screens.assistant import AssistantScreen
         from ui.screens.control import ControlScreen
         from ui.screens.filament_ams import FilamentAMSScreen
         from ui.screens.first_run import FirstRunScreen
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
         self.register_screen("control", ControlScreen(self))
         self.register_screen("settings", SettingsScreen(self))
         self.register_screen("first_run", FirstRunScreen(self))
+        self.register_screen("assistant", AssistantScreen(self))
 
         start_screen = "first_run" if not self.config.is_ready else "home"
         self.navigate_to(start_screen)

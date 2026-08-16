@@ -7,11 +7,16 @@ rather than a full-screen block.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 
 class HMSBanner(QWidget):
+    # Navigates to the Assistant screen's full list of active HMS errors --
+    # the banner only ever shows the first one (see apply_errors), so this
+    # is the way to actually see every currently-active fault's full text.
+    check_solution_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("hmsBanner")
@@ -24,6 +29,11 @@ class HMSBanner(QWidget):
         self._label.setObjectName("hmsBannerLabel")
         self._label.setWordWrap(True)
         layout.addWidget(self._label, 1)
+
+        solution_btn = QPushButton("Check Solution")
+        solution_btn.setObjectName("hmsBannerSolution")
+        solution_btn.clicked.connect(self._on_check_solution)
+        layout.addWidget(solution_btn)
 
         dismiss_btn = QPushButton("Dismiss")
         dismiss_btn.setObjectName("hmsBannerDismiss")
@@ -59,3 +69,10 @@ class HMSBanner(QWidget):
     def _on_dismiss(self) -> None:
         self._dismissed_messages.add(self._label.text())
         self.hide()
+
+    def _on_check_solution(self) -> None:
+        # Same "acknowledged, stop showing it" effect as Dismiss -- Check
+        # Solution is a stronger acknowledgement than a plain dismiss (the
+        # user is actively going to go read about it), not a weaker one.
+        self._on_dismiss()
+        self.check_solution_requested.emit()
