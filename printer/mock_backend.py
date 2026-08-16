@@ -145,6 +145,9 @@ class MockBackend(PrinterBackend):
                 tray.is_active = False
         self._tick()
 
+    def sync_ams(self) -> None:
+        self._tick()  # nothing to actually re-request in mock mode
+
     # -- files ----------------------------------------------------------------
     def request_file_list(self) -> None:
         self.file_list_ready.emit(list(_MOCK_FILES))

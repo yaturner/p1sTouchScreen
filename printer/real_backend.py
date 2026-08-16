@@ -816,6 +816,15 @@ class RealBackend(PrinterBackend):
             }
         })
 
+    def sync_ams(self) -> None:
+        # bambulabs_api's own pushall() -- {"pushing": {"command":
+        # "pushall"}} -- the same request the library sends once on
+        # connect and periodically thereafter (pushall_timeout). No local
+        # command forces the AMS hardware to re-scan RFID; this just
+        # re-requests the printer's current full state immediately instead
+        # of waiting for the next periodic refresh.
+        self._call(self._printer.mqtt_client.pushall)
+
     def _publish_raw(self, payload: dict) -> None:
         client = self._printer.mqtt_client
         ok = client._client.publish(client.command_topic, json.dumps(payload))

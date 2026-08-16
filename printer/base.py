@@ -104,6 +104,15 @@ class PrinterBackend(QObject):
     @abstractmethod
     def unload_filament(self, slot: int) -> None: ...
 
+    # Re-requests the printer's full state (including AMS) right now
+    # rather than waiting for the periodic refresh -- there's no local
+    # MQTT command that makes the AMS hardware itself re-scan a spool's
+    # RFID tag (that's autonomous firmware behavior), so this only
+    # refreshes what the app displays from whatever the printer currently
+    # knows, e.g. right after physically swapping a spool.
+    @abstractmethod
+    def sync_ams(self) -> None: ...
+
     # -- files -------------------------------------------------------------
     @abstractmethod
     def request_file_list(self) -> None: ...

@@ -20,6 +20,13 @@ class FilamentAMSScreen(QWidget):
         back_btn.clicked.connect(lambda: main_window.navigate_to("home"))
         header.addWidget(back_btn)
         header.addWidget(QLabel("Filament / AMS"), 1)
+        # Re-requests the printer's current state immediately -- there's no
+        # local command that forces the AMS to re-scan a spool's RFID tag,
+        # so this just skips the wait for the next periodic refresh (e.g.
+        # right after swapping a spool).
+        sync_btn = QPushButton("Sync")
+        sync_btn.clicked.connect(lambda: self._main_window.backend.sync_ams())
+        header.addWidget(sync_btn)
         root.addLayout(header)
 
         slots_row = QHBoxLayout()
