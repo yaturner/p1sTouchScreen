@@ -256,6 +256,73 @@ class _PrintStartWorker(QThread):
         self.resolved.emit(ams_mapping, warning)
 
 
+class _AmsLoadWorker(QThread):
+    """Waits for the AMS to actually finish switching to the tray a print
+    needs before that print is started.
+
+    Confirmed live: project_file's inline ams_mapping does NOT reliably
+    make the printer feed filament into a completely empty/unloaded
+    toolhead (tray_now stayed "255" indefinitely, zero AMS motor
+    activity, print stuck at gcode_state RUNNING/stg_cur 54 forever) --
+    but the same ams_change_filament command the Filament screen's Load
+    button already sends does reliably trigger the swap. So before
+    actually starting a print whose target tray differs from tray_now,
+    explicitly request that switch and wait for it to land first, rather
+    than trusting project_file to handle a cold load on its own.
+    """
+
+    finished_waiting = Signal(bool)  # True once tray_now reaches target, False on timeout
+
+    _POLL_INTERVAL_MS = 1500
+    _TIMEOUT_S = 60
+
+    def __init__(self, printer: "bl.Printer", target_slot: int, default_nozzle_target: int, parent=None) -> None:
+        super().__init__(parent)
+        self._printer = printer
+        self._target_slot = target_slot
+        self._default_nozzle_target = default_nozzle_target
+
+    def run(self) -> None:
+        if self._current_tray() == self._target_slot:
+            self.finished_waiting.emit(True)
+            return
+        current_temp = _safe(self._printer.get_nozzle_temperature)
+        curr_temp = int(current_temp) if current_temp is not None else 0
+        payload = {
+            "print": {
+                "sequence_id": "0",
+                "command": "ams_change_filament",
+                "target": self._target_slot,
+                "curr_temp": curr_temp,
+                "tar_temp": self._default_nozzle_target,
+            }
+        }
+        try:
+            client = self._printer.mqtt_client
+            ok = client._client.publish(client.command_topic, json.dumps(payload))
+            ok.wait_for_publish()
+        except Exception:
+            logger.warning("failed to request AMS switch to slot %s", self._target_slot, exc_info=True)
+            self.finished_waiting.emit(False)
+            return
+        elapsed_ms = 0
+        while elapsed_ms < self._TIMEOUT_S * 1000:
+            self.msleep(self._POLL_INTERVAL_MS)
+            elapsed_ms += self._POLL_INTERVAL_MS
+            if self._current_tray() == self._target_slot:
+                self.finished_waiting.emit(True)
+                return
+        self.finished_waiting.emit(False)
+
+    def _current_tray(self) -> int | None:
+        raw_print = (self._printer.mqtt_dump() or {}).get("print") or {}
+        ams_block = raw_print.get("ams") or {}
+        try:
+            return int(ams_block.get("tray_now"))
+        except (TypeError, ValueError):
+            return None
+
+
 class _FileListWorker(QThread):
     """One-shot background fetch of the FTP file listing.
 
@@ -318,6 +385,7 @@ class RealBackend(PrinterBackend):
         self._ftp_lock = threading.Lock()
         self._file_list_worker: _FileListWorker | None = None
         self._print_start_worker: _PrintStartWorker | None = None
+        self._ams_load_worker: _AmsLoadWorker | None = None
         # Set only while waiting on the user to confirm/cancel a print whose
         # AMS mapping couldn't be confidently resolved -- see
         # _on_print_start_resolved()/confirm_pending_print()/cancel_pending_print().
@@ -542,17 +610,41 @@ class RealBackend(PrinterBackend):
             self._pending_print = (filename, plate, ams_mapping)
             self.print_start_warning.emit(warning)
             return
-        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
+        self._begin_print(filename, plate, ams_mapping)
 
     def confirm_pending_print(self) -> None:
         if self._pending_print is None:
             return
         filename, plate, ams_mapping = self._pending_print
         self._pending_print = None
-        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
+        self._begin_print(filename, plate, ams_mapping)
 
     def cancel_pending_print(self) -> None:
         self._pending_print = None
+
+    def _begin_print(self, filename: str, plate: int, ams_mapping: list[int]) -> None:
+        # Make sure the AMS has actually finished switching to the tray
+        # this print needs before publishing project_file -- see
+        # _AmsLoadWorker's docstring for why this can't just be trusted to
+        # project_file's own ams_mapping field.
+        if not ams_mapping:
+            self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
+            return
+        worker = _AmsLoadWorker(self._printer, ams_mapping[0], self._DEFAULT_NOZZLE_TARGET_TEMP, self)
+        worker.finished_waiting.connect(
+            lambda ok: self._on_ams_load_finished(ok, filename, plate, ams_mapping))
+        worker.finished.connect(worker.deleteLater)
+        self._ams_load_worker = worker
+        worker.start()
+
+    def _on_ams_load_finished(self, ok: bool, filename: str, plate: int, ams_mapping: list[int]) -> None:
+        self._ams_load_worker = None
+        if not ok:
+            logger.warning("timed out waiting for AMS to switch to slot %s", ams_mapping[0])
+            self.error.emit(
+                "Timed out waiting for the AMS to load the needed filament -- starting the print anyway."
+            )
+        self._start_print_attempt(filename, plate, ams_mapping, allow_retry=True)
 
     def _start_print_attempt(self, filename: str, plate: int, ams_mapping: list[int], allow_retry: bool) -> None:
         # bambulabs_api's start_print()/start_print_3mf() reference the file
