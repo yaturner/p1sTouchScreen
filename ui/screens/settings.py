@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 
 import bambulabs_api
 from config import save_config
-from state import PrinterState
+from state import ConnectionState, PrinterState
 
 _APP_VERSION = "0.1.0"
 
@@ -41,9 +41,9 @@ class SettingsScreen(QWidget):
         self._connection_label = QLabel("Connection: unknown")
         root.addWidget(self._connection_label)
 
-        reconnect_btn = QPushButton("Reconnect")
-        reconnect_btn.clicked.connect(self._on_reconnect)
-        root.addWidget(reconnect_btn)
+        self._reconnect_btn = QPushButton("Reconnect")
+        self._reconnect_btn.clicked.connect(self._on_reconnect)
+        root.addWidget(self._reconnect_btn)
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Display mode:"))
@@ -104,8 +104,13 @@ class SettingsScreen(QWidget):
 
     def _on_reconnect(self) -> None:
         backend = self._main_window.backend
+        was_connected = backend.state.connection == ConnectionState.CONNECTED
         backend.disconnect_printer()
-        backend.connect_printer()
+        # Only immediately reconnect if that's what was asked for --
+        # Disconnect should actually disconnect and stay that way, not
+        # bounce right back.
+        if not was_connected:
+            backend.connect_printer()
 
     def _update_fullscreen_button(self) -> None:
         is_fullscreen = self._main_window.config.app.fullscreen
@@ -153,3 +158,5 @@ class SettingsScreen(QWidget):
 
     def apply_state(self, state: PrinterState) -> None:
         self._connection_label.setText(f"Connection: {state.connection.name.title()}")
+        is_connected = state.connection == ConnectionState.CONNECTED
+        self._reconnect_btn.setText("Disconnect" if is_connected else "Reconnect")
