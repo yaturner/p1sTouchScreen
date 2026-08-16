@@ -22,6 +22,16 @@ rather skip this entirely, toggle **Skip Thumbnails** in Settings (or set
 `app.skip_thumbnails: true` in `config.yaml`) -- Print Files will still
 list every file, just without previews.
 
+**Editing an AMS slot's filament overwrites the printer's own stored
+value -- there's no "reset to correct" afterward.** The Filament/AMS
+screen's **Edit** button writes a slot's filament type + color directly
+to the printer (the same field a genuine spool's RFID tag would set), so
+after editing, **Sync** will correctly keep showing your edited value,
+not the original one -- Sync only ever reflects the printer's current
+state, it can't distinguish "edited" from "real." To restore a slot's
+real data, either physically remove and reinsert that spool (the AMS
+re-reads the RFID tag fresh on reinsertion) or edit it back manually.
+
 ## Screenshots
 
 | Home | Print Files | Settings |
