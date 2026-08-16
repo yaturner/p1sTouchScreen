@@ -50,7 +50,7 @@ class SettingsScreen(QWidget):
         # reachable at initial setup, matching the Android port's
         # "Printer Setup" button next to its own Reconnect/Disconnect.
         setup_btn = QPushButton("Printer Setup")
-        setup_btn.clicked.connect(lambda: main_window.navigate_to("first_run"))
+        setup_btn.clicked.connect(self._on_printer_setup)
         connection_row.addWidget(setup_btn)
         root.addLayout(connection_row)
 
@@ -120,6 +120,25 @@ class SettingsScreen(QWidget):
         # bounce right back.
         if not was_connected:
             backend.connect_printer()
+
+    def _on_printer_setup(self) -> None:
+        # Only worth warning about if there's an actual live connection to
+        # lose -- saving new settings requires an app restart to take
+        # effect (see FirstRunScreen._on_save), which drops whatever's
+        # currently connected. Nothing to warn about if already
+        # disconnected.
+        is_connected = self._main_window.backend.state.connection == ConnectionState.CONNECTED
+        if is_connected:
+            reply = QMessageBox.question(
+                self, "Change Printer Settings",
+                "Changing printer settings requires restarting the app, which will "
+                "disconnect it from the printer. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._main_window.navigate_to("first_run")
 
     def _update_fullscreen_button(self) -> None:
         is_fullscreen = self._main_window.config.app.fullscreen
