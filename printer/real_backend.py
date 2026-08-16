@@ -22,6 +22,7 @@ import bambulabs_api as bl
 from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QImage
 
+from filament_presets import FILAMENT_PRESETS
 from printer.base import PrinterBackend
 from printer.hms_codes import describe_hms
 from printer.image_convert import pil_to_qimage
@@ -871,6 +872,31 @@ class RealBackend(PrinterBackend):
         # re-requests the printer's current full state immediately instead
         # of waiting for the next periodic refresh.
         self._call(self._printer.mqtt_client.pushall)
+
+    def set_filament_settings(self, slot: int, filament_key: str, color_hex: str) -> None:
+        # ams_filament_setting, confirmed against bambulabs_api's own
+        # set_printer_filament() -- ams_id=0 (this printer's single AMS
+        # unit) + tray_id=<slot> targets a real AMS slot, not the default
+        # ams_id=255/tray_id=254 external-spool sentinel that method's own
+        # defaults point at. tray_color needs the trailing alpha byte to
+        # match the FF the printer's own telemetry always reports.
+        preset = FILAMENT_PRESETS.get(filament_key)
+        if preset is None:
+            logger.warning("unknown filament preset %r", filament_key)
+            return
+        color = color_hex.lstrip("#").upper()
+        self._call(self._publish_raw, {
+            "print": {
+                "command": "ams_filament_setting",
+                "ams_id": 0,
+                "tray_id": slot,
+                "tray_info_idx": preset.tray_info_idx,
+                "tray_color": f"{color}FF",
+                "nozzle_temp_min": preset.nozzle_temp_min,
+                "nozzle_temp_max": preset.nozzle_temp_max,
+                "tray_type": preset.tray_type,
+            }
+        })
 
     def _publish_raw(self, payload: dict) -> None:
         client = self._printer.mqtt_client

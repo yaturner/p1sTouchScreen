@@ -113,6 +113,12 @@ class PrinterBackend(QObject):
     @abstractmethod
     def sync_ams(self) -> None: ...
 
+    # Writes a slot's stored filament type + color -- ams_filament_setting,
+    # confirmed against bambulabs_api's set_printer_filament(). filament_key
+    # is one of ui.filament_presets.FILAMENT_PRESETS' keys.
+    @abstractmethod
+    def set_filament_settings(self, slot: int, filament_key: str, color_hex: str) -> None: ...
+
     # -- files -------------------------------------------------------------
     @abstractmethod
     def request_file_list(self) -> None: ...

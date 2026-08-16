@@ -10,12 +10,14 @@ from state import AMSTray
 class AMSSlotWidget(QFrame):
     load_requested = Signal(int)
     unload_requested = Signal(int)
+    edit_requested = Signal(int)
 
     def __init__(self, slot_index: int, parent=None) -> None:
         super().__init__(parent)
         self.slot_index = slot_index
         self.setObjectName("amsSlot")
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.tray = AMSTray(slot_index=slot_index)
 
         root = QVBoxLayout(self)
 
@@ -37,11 +39,16 @@ class AMSSlotWidget(QFrame):
         self._unload_btn = QPushButton("Unload")
         self._unload_btn.clicked.connect(lambda: self.unload_requested.emit(self.slot_index))
         btn_row.addWidget(self._unload_btn)
+
+        self._edit_btn = QPushButton("Edit")
+        self._edit_btn.clicked.connect(lambda: self.edit_requested.emit(self.slot_index))
+        btn_row.addWidget(self._edit_btn)
         root.addLayout(btn_row)
 
         self.set_tray(AMSTray(slot_index=slot_index))
 
     def set_tray(self, tray: AMSTray, busy: bool = False) -> None:
+        self.tray = tray
         color = tray.color_hex or "#3a3a3a"
         self._swatch.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
         if tray.is_empty:
@@ -54,7 +61,8 @@ class AMSSlotWidget(QFrame):
         self.style().polish(self)
         # Disabled while any load/unload is in flight -- firing a second
         # one mid-swap is untested territory. Also disabled on an empty
-        # slot -- nothing to feed in or retract either way.
+        # slot -- nothing to feed in, retract, or label either way.
         enabled = not busy and not tray.is_empty
         self._load_btn.setEnabled(enabled)
         self._unload_btn.setEnabled(enabled)
+        self._edit_btn.setEnabled(enabled)

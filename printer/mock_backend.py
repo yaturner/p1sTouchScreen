@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 
+from filament_presets import FILAMENT_PRESETS
 from printer.base import PrinterBackend
 from state import AMSTray, ConnectionState, GcodeState, PrinterState, PrintFile
 
@@ -157,6 +158,22 @@ class MockBackend(PrinterBackend):
 
     def sync_ams(self) -> None:
         self._tick()  # nothing to actually re-request in mock mode
+
+    def set_filament_settings(self, slot: int, filament_key: str, color_hex: str) -> None:
+        preset = FILAMENT_PRESETS.get(filament_key)
+        if preset is None:
+            return
+        idx = next((i for i, t in enumerate(self._ams_trays) if t.slot_index == slot), None)
+        if idx is None:
+            return
+        self._ams_trays[idx] = AMSTray(
+            slot_index=slot,
+            filament_type=preset.tray_type,
+            color_hex=color_hex,
+            is_active=self._ams_trays[idx].is_active,
+            is_empty=False,
+        )
+        self._tick()
 
     # -- files ----------------------------------------------------------------
     def request_file_list(self) -> None:

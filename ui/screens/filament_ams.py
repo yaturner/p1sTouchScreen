@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from state import PrinterState
+from ui.widgets.ams_edit_dialog import AmsEditDialog
 from ui.widgets.ams_slot import AMSSlotWidget
 
 
@@ -40,6 +41,7 @@ class FilamentAMSScreen(QWidget):
             slot = AMSSlotWidget(i)
             slot.load_requested.connect(self._on_load)
             slot.unload_requested.connect(self._on_unload)
+            slot.edit_requested.connect(self._on_edit)
             slots_row.addWidget(slot)
             self._slots.append(slot)
         root.addLayout(slots_row)
@@ -59,6 +61,12 @@ class FilamentAMSScreen(QWidget):
 
     def _on_unload(self, slot_index: int) -> None:
         self._main_window.backend.unload_filament(slot_index)
+
+    def _on_edit(self, slot_index: int) -> None:
+        widget = self._slots[slot_index]
+        dialog = AmsEditDialog(slot_index, widget.tray, self)
+        if dialog.exec() == AmsEditDialog.DialogCode.Accepted and dialog.filament_key and dialog.color_hex:
+            self._main_window.backend.set_filament_settings(slot_index, dialog.filament_key, dialog.color_hex)
 
     def apply_state(self, state: PrinterState) -> None:
         temp = f"{state.ams_temp:.0f}°C" if state.ams_temp is not None else "--°C"
