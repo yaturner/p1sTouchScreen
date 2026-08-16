@@ -73,6 +73,12 @@ class PrinterState:
     # uses this to disable Load/Unload/Sync while a swap is already running,
     # since firing a second one mid-swap is untested territory.
     ams_busy: bool = False
+    # AMS unit's own internal sensor readings (not per-tray) -- "temp" and
+    # "humidity_raw" from raw["ams"]["ams"][0], confirmed present on this
+    # printer's live telemetry (e.g. temp=34.4, humidity_raw=40 meaning
+    # ~40% RH).
+    ams_temp: float | None = None
+    ams_humidity_percent: int | None = None
 
     raw: dict = field(default_factory=dict)
 

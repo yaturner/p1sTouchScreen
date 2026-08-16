@@ -192,6 +192,8 @@ class MockBackend(PrinterBackend):
         s.speed_level = self._speed_level
         s.ams_trays = self._ams_trays
         s.ams_busy = time.monotonic() < self._ams_busy_until
+        s.ams_temp = 32.5
+        s.ams_humidity_percent = 35
         s.hms_errors = []
 
         if self._printing:

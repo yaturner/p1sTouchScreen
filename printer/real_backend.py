@@ -505,6 +505,11 @@ class RealBackend(PrinterBackend):
             if new_trays is not None:
                 s.ams_trays = new_trays
             s.ams_busy = self._is_ams_busy(raw_print)
+            ams_temp, ams_humidity = self._read_ams_unit_info(raw_print)
+            if ams_temp is not None:
+                s.ams_temp = ams_temp
+            if ams_humidity is not None:
+                s.ams_humidity_percent = ams_humidity
             s.hms_errors = self._describe_hms_entries(raw_print.get("hms"))
 
             self.state_changed.emit(s)
@@ -587,6 +592,29 @@ class RealBackend(PrinterBackend):
         if tray_tar is None or tray_now is None:
             return False
         return str(tray_tar) != str(tray_now)
+
+    @staticmethod
+    def _read_ams_unit_info(raw: dict) -> tuple[float | None, int | None]:
+        # AMS unit's own sensor readings (not per-tray), at
+        # ams.ams[0].temp / .humidity_raw -- confirmed present on this
+        # printer's live telemetry (e.g. temp=34.4, humidity_raw=40,
+        # read as ~40% RH). "humidity" (a coarse 1-5 level, distinct from
+        # humidity_raw) is deliberately not surfaced -- its exact meaning
+        # wasn't confirmed live, unlike humidity_raw's plain percent shape.
+        ams_block = raw.get("ams") or {}
+        units = ams_block.get("ams") if isinstance(ams_block, dict) else None
+        unit = units[0] if isinstance(units, list) and units else None
+        if not isinstance(unit, dict):
+            return None, None
+        try:
+            temp = float(unit["temp"])
+        except (KeyError, TypeError, ValueError):
+            temp = None
+        try:
+            humidity = int(float(unit["humidity_raw"]))
+        except (KeyError, TypeError, ValueError):
+            humidity = None
+        return temp, humidity
 
     @staticmethod
     def _active_tray_index(raw: dict) -> int | None:

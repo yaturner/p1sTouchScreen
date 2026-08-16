@@ -30,6 +30,10 @@ class FilamentAMSScreen(QWidget):
         self._sync_btn = sync_btn
         root.addLayout(header)
 
+        self._env_label = QLabel("AMS: -- °C · -- % RH")
+        self._env_label.setObjectName("amsEnvLabel")
+        root.addWidget(self._env_label)
+
         slots_row = QHBoxLayout()
         self._slots: list[AMSSlotWidget] = []
         for i in range(4):
@@ -57,6 +61,10 @@ class FilamentAMSScreen(QWidget):
         self._main_window.backend.unload_filament(slot_index)
 
     def apply_state(self, state: PrinterState) -> None:
+        temp = f"{state.ams_temp:.0f}°C" if state.ams_temp is not None else "--°C"
+        humidity = f"{state.ams_humidity_percent}% RH" if state.ams_humidity_percent is not None else "--% RH"
+        self._env_label.setText(f"AMS: {temp} · {humidity}")
+
         by_index = {t.slot_index: t for t in state.ams_trays}
         for i, widget in enumerate(self._slots):
             tray = by_index.get(i)
