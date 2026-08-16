@@ -17,6 +17,7 @@ _CONNECTION_ICONS = {
 
 class StatusBar(QWidget):
     quit_requested = Signal()
+    settings_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -43,6 +44,16 @@ class StatusBar(QWidget):
         self._connection_label = QLabel("🔴")
         self._connection_label.setObjectName("statusConnection")
         layout.addWidget(self._connection_label)
+
+        # Lives in the status bar (not the stack) specifically so it's
+        # never covered by ConnectionOverlay -- the one way to reach
+        # Settings while disconnected from any other screen, e.g. right
+        # after launch with the printer unreachable.
+        settings_btn = QPushButton("⚙")
+        settings_btn.setObjectName("statusSettings")
+        settings_btn.setFixedSize(36, 36)
+        settings_btn.clicked.connect(self.settings_requested.emit)
+        layout.addWidget(settings_btn)
 
         quit_btn = QPushButton("✕")
         quit_btn.setObjectName("statusQuit")

@@ -38,6 +38,7 @@ class MainWindow(QMainWindow):
 
         self.status_bar_widget = StatusBar()
         self.status_bar_widget.quit_requested.connect(self._on_quit_requested)
+        self.status_bar_widget.settings_requested.connect(lambda: self.navigate_to("settings"))
         outer.addWidget(self.status_bar_widget)
 
         self.hms_banner = HMSBanner()
@@ -54,7 +55,12 @@ class MainWindow(QMainWindow):
         self._was_printing = False
         self._cursor_hidden = False
 
-        self._overlay = ConnectionOverlay(central)
+        # Parented to the stack (not the whole central widget) so it never
+        # covers the status bar -- that's where the always-available
+        # Settings button lives, the one way to reach Settings while
+        # disconnected from a screen other than Settings/First Run itself
+        # (e.g. right after launch, stuck on Home with no printer reachable).
+        self._overlay = ConnectionOverlay(self.stack)
         self.loading_overlay = LoadingOverlay(central)
 
         self._build_screens()
@@ -182,5 +188,5 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         super().resizeEvent(event)
-        self._overlay.setGeometry(self.centralWidget().rect())
+        self._overlay.setGeometry(self.stack.rect())
         self.loading_overlay.setGeometry(self.centralWidget().rect())
