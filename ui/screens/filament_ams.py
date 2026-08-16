@@ -25,7 +25,7 @@ class FilamentAMSScreen(QWidget):
         # so this just skips the wait for the next periodic refresh (e.g.
         # right after swapping a spool).
         sync_btn = QPushButton("Sync")
-        sync_btn.clicked.connect(lambda: self._main_window.backend.sync_ams())
+        sync_btn.clicked.connect(self._on_sync)
         header.addWidget(sync_btn)
         root.addLayout(header)
 
@@ -39,6 +39,15 @@ class FilamentAMSScreen(QWidget):
             self._slots.append(slot)
         root.addLayout(slots_row)
         root.addStretch(1)
+
+    def _on_sync(self) -> None:
+        # sync_ams() fires a real MQTT command but is otherwise silent --
+        # confirmed live that it published every time, but with no visible
+        # effect (AMS data is usually already fresh from the periodic
+        # refresh), tapping it felt broken. This toast is the only
+        # feedback the user gets that anything happened.
+        self._main_window.backend.sync_ams()
+        self._main_window.toast.show_message("AMS synced")
 
     def _on_load(self, slot_index: int) -> None:
         self._main_window.backend.load_filament(slot_index)
