@@ -460,41 +460,46 @@ class RealBackend(PrinterBackend):
         return described
 
     def _read_ams_trays(self, raw: dict) -> list[AMSTray] | None:
-        # None (not []) on failure -- bambulabs_api's Printer.process_ams()
-        # rebuilds self.ams_hub from scratch on every MQTT message and only
-        # repopulates it if THAT message happens to carry a full "ams"
-        # block, so hub[0] raises KeyError on any partial telemetry update
-        # that omits it (confirmed live: this fires on a large fraction of
-        # poll ticks, not just once). Returning [] here used to blow away
-        # _pull_state's last-known-good s.ams_trays on every such tick, so
-        # whichever state start_print() happened to catch was a coin flip
-        # between real tray data and empty -- and an empty read meant
-        # _PrintStartWorker silently fell back to ams_mapping=[0] with no
-        # confirmation warning at all, since an empty trays list can't
-        # distinguish "nothing loaded" from "couldn't read". Returning None
-        # instead leaves _pull_state's assignment as a no-op on a transient
-        # failure, so the caller keeps the last good reading.
-        trays: list[AMSTray] = []
+        # Parses AMS tray state directly out of the raw telemetry dict
+        # instead of going through bambulabs_api's Printer.ams_hub()/
+        # process_ams() -- that path turned out to never actually populate
+        # in this app's usage (hub[0] raised KeyError on every single poll
+        # tick for an entire live session, not just intermittently), even
+        # though the raw telemetry itself reliably carries full tray data
+        # every tick. This is what caused prints to silently fall back to
+        # ams_mapping=[0] with no confirmation warning: an always-empty
+        # trays list can't be told apart from "nothing loaded". Mirrors the
+        # Android port's PrinterTelemetry.amsTraysOrNull(), which parses
+        # this exact same raw shape directly and is confirmed working
+        # against this real printer. Returns None (not []) if the block is
+        # missing/malformed, so a transient hiccup leaves _pull_state's
+        # last-known-good s.ams_trays alone rather than wiping it.
         try:
-            hub = self._printer.ams_hub()
-            ams_unit = hub[0]
+            ams_block = raw.get("ams") or {}
+            if not ams_block or ams_block.get("ams_exist_bits", "0") == "0":
+                return None
+            units = ams_block.get("ams") or []
+            if not units:
+                return None
+            tray_list = units[0].get("tray") or []
             active_index = self._active_tray_index(raw)
+            trays: list[AMSTray] = []
             for i in range(4):
-                ft = ams_unit.get_filament_tray(i)
-                if ft is None:
+                tray = tray_list[i] if i < len(tray_list) else None
+                if not tray or not tray.get("n"):
                     trays.append(AMSTray(slot_index=i, is_empty=True))
                     continue
                 trays.append(AMSTray(
                     slot_index=i,
-                    filament_type=getattr(ft, "tray_type", None) or None,
-                    color_hex=_normalize_color(getattr(ft, "tray_color", None)),
+                    filament_type=tray.get("tray_type") or None,
+                    color_hex=_normalize_color(tray.get("tray_color")),
                     is_active=(i == active_index),
-                    is_empty=not bool(getattr(ft, "tray_type", None)),
+                    is_empty=False,
                 ))
+            return trays
         except Exception:
-            logger.debug("AMS read failed (no AMS attached, or hub not yet populated)", exc_info=True)
+            logger.debug("AMS read failed", exc_info=True)
             return None
-        return trays
 
     @staticmethod
     def _active_tray_index(raw: dict) -> int | None:
