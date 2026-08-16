@@ -41,9 +41,18 @@ class SettingsScreen(QWidget):
         self._connection_label = QLabel("Connection: unknown")
         root.addWidget(self._connection_label)
 
+        connection_row = QHBoxLayout()
         self._reconnect_btn = QPushButton("Reconnect")
         self._reconnect_btn.clicked.connect(self._on_reconnect)
-        root.addWidget(self._reconnect_btn)
+        connection_row.addWidget(self._reconnect_btn)
+
+        # Re-reaches First Run (IP/serial/access code) -- otherwise only
+        # reachable at initial setup, matching the Android port's
+        # "Printer Setup" button next to its own Reconnect/Disconnect.
+        setup_btn = QPushButton("Printer Setup")
+        setup_btn.clicked.connect(lambda: main_window.navigate_to("first_run"))
+        connection_row.addWidget(setup_btn)
+        root.addLayout(connection_row)
 
         display_row = QHBoxLayout()
         display_row.addWidget(QLabel("Display mode:"))
