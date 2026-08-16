@@ -567,6 +567,7 @@ class RealBackend(PrinterBackend):
                 trays.append(AMSTray(
                     slot_index=i,
                     filament_type=tray.get("tray_type") or None,
+                    sub_brand=tray.get("tray_sub_brands") or None,
                     color_hex=_normalize_color(tray.get("tray_color")),
                     is_active=(i == active_index),
                     is_empty=False,

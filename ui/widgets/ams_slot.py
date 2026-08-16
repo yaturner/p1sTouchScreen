@@ -55,7 +55,11 @@ class AMSSlotWidget(QFrame):
             self._type_label.setText(f"Slot {self.slot_index + 1}: Empty")
         else:
             active = " • active" if tray.is_active else ""
-            self._type_label.setText(f"Slot {self.slot_index + 1}: {tray.filament_type or '?'}{active}")
+            # Prefer the RFID's specific product name (e.g. "PLA
+            # Translucent") over the generic material category ("PLA")
+            # when the printer reports one.
+            name = tray.sub_brand or tray.filament_type or "?"
+            self._type_label.setText(f"Slot {self.slot_index + 1}: {name}{active}")
         self.setProperty("active", tray.is_active)
         self.style().unpolish(self)
         self.style().polish(self)

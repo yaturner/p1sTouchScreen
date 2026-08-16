@@ -31,6 +31,11 @@ class GcodeState(Enum):
 class AMSTray:
     slot_index: int
     filament_type: str | None = None
+    # The RFID's specific product name (e.g. "PLA Translucent"), distinct
+    # from filament_type's generic material category (e.g. "PLA") -- from
+    # raw tray_sub_brands. None/blank for a manually-Edited slot, since
+    # ams_filament_setting doesn't set this field.
+    sub_brand: str | None = None
     color_hex: str | None = None
     is_active: bool = False
     is_empty: bool = True
